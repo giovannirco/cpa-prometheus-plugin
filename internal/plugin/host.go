@@ -47,8 +47,9 @@ type hostHTTPRequest struct {
 }
 
 type hostHTTPResponse struct {
-	StatusCode int    `json:"status_code"`
-	Body       []byte `json:"body"`
+	StatusCode int                 `json:"StatusCode"`
+	Headers    map[string][]string `json:"Headers,omitempty"`
+	Body       []byte              `json:"Body"`
 }
 
 func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
