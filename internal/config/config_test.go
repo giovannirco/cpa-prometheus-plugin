@@ -48,6 +48,27 @@ func TestParseRejectsOversizedYAML(t *testing.T) {
 	}
 }
 
+func TestParsePublicMetricsDefaultFalse(t *testing.T) {
+	cfg, err := Parse(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PublicMetrics {
+		t.Fatal("public-metrics must default false")
+	}
+}
+
+func TestParsePublicMetricsTrue(t *testing.T) {
+	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\n")})
+	cfg, err := Parse(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.PublicMetrics {
+		t.Fatal("public-metrics true")
+	}
+}
+
 func TestParseRejectsYAMLAnchors(t *testing.T) {
 	yamlText := "a: &id 1\nb: *id\n"
 	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte(yamlText)})

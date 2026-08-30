@@ -13,6 +13,7 @@ import (
 
 func TestMetricsHandlerPrometheusText(t *testing.T) {
 	c := New("0.1.0")
+	c.SetPublicMetrics(true)
 	c.ObserveUsage(UsageRecord{
 		Provider: "codex",
 		Model:    "gpt-5.5",
@@ -67,6 +68,15 @@ func TestMetricsHandlerPrometheusText(t *testing.T) {
 		if !strings.Contains(text, name) {
 			t.Fatalf("handler body missing %s:\n%s", name, text)
 		}
+	}
+}
+
+func TestMetricsHandlerDeniesAnonymousWhenNotPublic(t *testing.T) {
+	c := New("0.1.0")
+	rec := httptest.NewRecorder()
+	c.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", rec.Code)
 	}
 }
 

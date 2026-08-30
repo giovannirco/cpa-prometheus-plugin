@@ -81,10 +81,11 @@ type Collector struct {
 	modelSeen              *prometheus.GaugeVec
 	modelAvailable         *prometheus.GaugeVec
 
-	mu          sync.Mutex
-	seenModels  map[string]map[string]struct{}
-	emails      map[string]string
-	scrapeToken string
+	mu            sync.Mutex
+	seenModels    map[string]map[string]struct{}
+	emails        map[string]string
+	scrapeToken   string
+	publicMetrics bool
 }
 
 func New(version string) *Collector {
@@ -267,6 +268,12 @@ func New(version string) *Collector {
 func (c *Collector) SetScrapeToken(token string) {
 	c.mu.Lock()
 	c.scrapeToken = strings.TrimSpace(token)
+	c.mu.Unlock()
+}
+
+func (c *Collector) SetPublicMetrics(v bool) {
+	c.mu.Lock()
+	c.publicMetrics = v
 	c.mu.Unlock()
 }
 
@@ -505,17 +512,33 @@ func (c *Collector) Gather() (string, error) {
 }
 
 func (c *Collector) MetricsHandler() http.Handler {
+	return c.metricsHandler(true)
+}
+
+func (c *Collector) ManagementMetricsHandler() http.Handler {
+	return c.metricsHandler(false)
+}
+
+func (c *Collector) metricsHandler(resource bool) http.Handler {
 	inner := promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c.mu.Lock()
-		token := c.scrapeToken
-		c.mu.Unlock()
-		if token != "" && !scrapeTokenOK(r, token) {
+		if resource && !c.resourceAllowed(r) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		inner.ServeHTTP(w, r)
 	})
+}
+
+func (c *Collector) resourceAllowed(r *http.Request) bool {
+	c.mu.Lock()
+	token := c.scrapeToken
+	public := c.publicMetrics
+	c.mu.Unlock()
+	if token != "" {
+		return scrapeTokenOK(r, token)
+	}
+	return public
 }
 
 func scrapeTokenOK(r *http.Request, token string) bool {

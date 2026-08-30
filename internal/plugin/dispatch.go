@@ -18,13 +18,14 @@ const (
 	PluginName    = "CPA Prometheus"
 	PluginAuthor  = "giovannirco"
 	PluginRepo    = "https://github.com/giovannirco/cpa-prometheus-plugin"
+	PluginLogo    = "https://raw.githubusercontent.com/giovannirco/cpa-prometheus-plugin/main/logo.png"
 	schemaVersion = 1
 
 	metricsResourcePath = "/metrics"
 	metricsManagePath   = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.1.7"
+var PluginVersion = "0.1.8"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -90,6 +91,7 @@ func (rt *Runtime) register(request []byte) []byte {
 		rt.col = collector.New(PluginVersion)
 	}
 	rt.col.SetScrapeToken(cfg.ScrapeToken)
+	rt.col.SetPublicMetrics(cfg.PublicMetrics)
 	rt.col.SetPollInterval(cfg.QuotaRefreshInterval)
 	host := rt.host
 	rt.mu.Unlock()
@@ -101,12 +103,13 @@ func (rt *Runtime) register(request []byte) []byte {
 			"Version":          PluginVersion,
 			"Author":           PluginAuthor,
 			"GitHubRepository": PluginRepo,
-			"Logo":             "",
+			"Logo":             PluginLogo,
 			"ConfigFields": []map[string]string{
 				{"Name": "quota-refresh-interval", "Type": "string", "Description": "Quota poll interval. Default 5m."},
 				{"Name": "request-timeout", "Type": "string", "Description": "Per-account quota HTTP timeout. Default 20s."},
 				{"Name": "include-disabled", "Type": "boolean", "Description": "Include disabled credentials in quota scans."},
-				{"Name": "scrape-token", "Type": "string", "Description": "Optional bearer token required on /metrics."},
+				{"Name": "public-metrics", "Type": "boolean", "Description": "If true, unauthenticated resource GET /metrics is allowed. Default false."},
+				{"Name": "scrape-token", "Type": "string", "Description": "If set, resource /metrics requires Authorization: Bearer or X-Scrape-Token."},
 			},
 		},
 		"capabilities": map[string]bool{
@@ -250,7 +253,11 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 			httpReq.Header.Add(k, v)
 		}
 	}
-	col.MetricsHandler().ServeHTTP(rec, httpReq)
+	handler := col.ManagementMetricsHandler()
+	if isResourceMetricsPath(req.Path) {
+		handler = col.MetricsHandler()
+	}
+	handler.ServeHTTP(rec, httpReq)
 	headers := map[string][]string{}
 	for k, vs := range rec.Header() {
 		headers[k] = vs
@@ -261,6 +268,11 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 func isMetricsPath(path string) bool {
 	path = strings.TrimRight(path, "/")
 	return strings.HasSuffix(path, metricsResourcePath) || strings.HasSuffix(path, metricsManagePath)
+}
+
+func isResourceMetricsPath(path string) bool {
+	p := strings.ToLower(strings.TrimRight(path, "/"))
+	return strings.Contains(p, "/resource/")
 }
 
 func okJSON(v any) []byte {

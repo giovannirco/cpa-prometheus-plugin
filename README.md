@@ -8,11 +8,25 @@ Needs a plugin-capable CPA v7.2.x image. The `_no-plugin` builds cannot load it.
 
 ## Scrape
 
-```
-GET /v0/resource/plugins/cpa-prometheus/metrics
+CPA resource routes are **not** management-authenticated. The store maintainer wants those routes limited to static/UI content, so this plugin defaults to **closed** on the resource path.
+
+| Path | Auth |
+|------|------|
+| `GET /v0/management/plugins/cpa-prometheus/metrics` | CPA management key (`Authorization: Bearer`). Always served. |
+| `GET /v0/resource/plugins/cpa-prometheus/metrics` | **401 by default.** Set `public-metrics: true` for an open LAN scrape, or set `scrape-token` and send `Authorization: Bearer` / `X-Scrape-Token`. |
+
+Grafana Alloy example (dedicated scrape token, not the management key):
+
+```alloy
+prometheus.scrape "cliproxyapi" {
+  targets      = [{"__address__" = "cliproxyapi.cliproxyapi.svc:8317"}]
+  metrics_path = "/v0/resource/plugins/cpa-prometheus/metrics"
+  bearer_token = sys.env("CPA_PROMETHEUS_SCRAPE_TOKEN")
+  job_name     = "cliproxyapi"
+}
 ```
 
-Resource routes are not management-authenticated, so a LAN scraper can hit this without the management key. Leave `scrape-token` empty for that. If you set it, a missing or wrong `Authorization: Bearer` / `X-Scrape-Token` is 401.
+Prometheus Operator `ServiceMonitor` `bearerTokenSecret` works the same way.
 
 Token-shaped values, cookies, file paths, and raw API keys are dropped from labels. Email stays as an identifier.
 
@@ -129,6 +143,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 | `quota-refresh-interval` | `5m` |
 | `request-timeout` | `20s` |
 | `include-disabled` | `false` |
+| `public-metrics` | `false` (resource `/metrics` is 401 unless true or a scrape-token is presented) |
 | `scrape-token` | empty |
 
 ## Build
@@ -136,7 +151,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.7 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.1.8 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

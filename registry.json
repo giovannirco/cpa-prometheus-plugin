@@ -7,6 +7,7 @@
       "description": "Prometheus metrics for CLIProxyAPI usage, Management Center dashboard counts, and provider quota windows (Claude, Codex, Antigravity, Kimi, xAI).",
       "author": "giovannirco",
       "repository": "https://github.com/giovannirco/cpa-prometheus-plugin",
+      "logo": "https://raw.githubusercontent.com/giovannirco/cpa-prometheus-plugin/main/logo.png",
       "homepage": "https://github.com/giovannirco/cpa-prometheus-plugin",
       "license": "MIT",
       "tags": ["metrics", "prometheus", "quota", "usage"]

@@ -21,6 +21,7 @@ type Config struct {
 	QuotaRefreshInterval time.Duration
 	RequestTimeout       time.Duration
 	IncludeDisabled      bool
+	PublicMetrics        bool
 	ScrapeToken          string
 	MaxConcurrency       int
 }
@@ -67,6 +68,7 @@ func Parse(request []byte) (Config, error) {
 		QuotaRefreshInterval string `yaml:"quota-refresh-interval"`
 		RequestTimeout       string `yaml:"request-timeout"`
 		IncludeDisabled      *bool  `yaml:"include-disabled"`
+		PublicMetrics        *bool  `yaml:"public-metrics"`
 		ScrapeToken          string `yaml:"scrape-token"`
 		MaxConcurrency       int    `yaml:"max-concurrency"`
 	}
@@ -89,6 +91,9 @@ func Parse(request []byte) (Config, error) {
 	}
 	if raw.IncludeDisabled != nil {
 		cfg.IncludeDisabled = *raw.IncludeDisabled
+	}
+	if raw.PublicMetrics != nil {
+		cfg.PublicMetrics = *raw.PublicMetrics
 	}
 	cfg.ScrapeToken = strings.TrimSpace(raw.ScrapeToken)
 	if raw.MaxConcurrency > MaxConcurrency {

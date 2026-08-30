@@ -7,20 +7,24 @@ version="${1:-0.1.0}"
 out_dir="${2:-dist}"
 mkdir -p "${out_dir}"
 
-so="${out_dir}/${plugin_id}.so"
-if [[ ! -f "${so}" ]]; then
-  echo "missing ${so}; run make build first" >&2
-  exit 1
-fi
-
 goos="${GOOS:-linux}"
 goarch="${GOARCH:-amd64}"
+ext="so"
+case "${goos}" in
+  darwin) ext="dylib" ;;
+  windows) ext="dll" ;;
+esac
+lib="${out_dir}/${plugin_id}.${ext}"
+if [[ ! -f "${lib}" ]]; then
+  echo "missing ${lib}; run make build first" >&2
+  exit 1
+fi
 zip_name="${plugin_id}_${version}_${goos}_${goarch}.zip"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
-cp "${so}" "${tmp}/${plugin_id}.so"
-(cd "${tmp}" && zip -9 -q "${OLDPWD}/${out_dir}/${zip_name}" "${plugin_id}.so")
+cp "${lib}" "${tmp}/${plugin_id}.${ext}"
+(cd "${tmp}" && zip -9 -q "${OLDPWD}/${out_dir}/${zip_name}" "${plugin_id}.${ext}")
 
 (
   cd "${out_dir}"
