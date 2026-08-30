@@ -62,6 +62,7 @@ func TestMetricsHandlerPrometheusText(t *testing.T) {
 		"cliproxy_quota_reset_timestamp_seconds",
 		"cliproxy_quota_last_success_timestamp_seconds",
 		"cliproxy_quota_poll_interval_seconds",
+		"cliproxy_last_request_timestamp_seconds",
 	} {
 		if !strings.Contains(text, name) {
 			t.Fatalf("handler body missing %s:\n%s", name, text)
@@ -83,5 +84,19 @@ func TestMetricsHandlerHonorsScrapeToken(t *testing.T) {
 	c.MetricsHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d, want 200", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	bad := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	bad.Header.Set("Authorization", "Bearer wrong")
+	c.MetricsHandler().ServeHTTP(rec, bad)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong token status %d, want 401", rec.Code)
+	}
+	rec = httptest.NewRecorder()
+	lower := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	lower.Header.Set("Authorization", "bearer s3cret")
+	c.MetricsHandler().ServeHTTP(rec, lower)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bearer prefix should be case-insensitive, status %d", rec.Code)
 	}
 }

@@ -12,7 +12,9 @@ Needs a plugin-capable CPA v7.2.x image. The `_no-plugin` builds cannot load it.
 GET /v0/resource/plugins/cpa-prometheus/metrics
 ```
 
-Resource routes are not management-authenticated, so a scraper can hit this without the management key. Set `scrape-token` if you want a bearer / `X-Scrape-Token` anyway.
+Resource routes are not management-authenticated, so a LAN scraper can hit this without the management key. Leave `scrape-token` empty for that. If you set it, a missing or wrong `Authorization: Bearer` / `X-Scrape-Token` is 401.
+
+Token-shaped values, cookies, file paths, and raw API keys are dropped from labels. Email stays as an identifier.
 
 ## Metrics
 
@@ -115,7 +117,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.5 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.1.6 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

@@ -13,7 +13,28 @@ const (
 	MaxProjectID   = 64
 )
 
+func secretLike(value string) bool {
+	s := strings.ToLower(strings.TrimSpace(value))
+	if s == "" {
+		return false
+	}
+	if strings.ContainsAny(s, `/\`) || strings.Contains(s, "://") {
+		return true
+	}
+	for _, prefix := range []string{
+		"sk-", "ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "xai-", "eyj", "bearer ",
+	} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return strings.Contains(s, "-----begin")
+}
+
 func Sanitize(value string, max int) string {
+	if secretLike(value) {
+		return "unknown"
+	}
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
 		return "unknown"
@@ -47,6 +68,9 @@ func AccountType(value string) string { return Sanitize(value, MaxAccountType) }
 func ProjectID(value string) string   { return Sanitize(value, MaxProjectID) }
 
 func Email(value string) string {
+	if secretLike(value) {
+		return "unknown"
+	}
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
 		return "unknown"

@@ -2,6 +2,7 @@ package collector
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"net/http"
@@ -498,14 +499,34 @@ func (c *Collector) MetricsHandler() http.Handler {
 }
 
 func scrapeTokenOK(r *http.Request, token string) bool {
-	if r == nil {
+	if r == nil || token == "" {
 		return false
 	}
-	if got := strings.TrimSpace(r.Header.Get("X-Scrape-Token")); got != "" && got == token {
+	if tokenEqual(strings.TrimSpace(r.Header.Get("X-Scrape-Token")), token) {
 		return true
 	}
-	auth := strings.TrimSpace(r.Header.Get("Authorization"))
-	return strings.EqualFold(strings.TrimPrefix(auth, "Bearer "), token) || strings.TrimPrefix(auth, "Bearer ") == token
+	return bearerTokenOK(r.Header.Get("Authorization"), token)
+}
+
+func bearerTokenOK(auth, token string) bool {
+	auth = strings.TrimSpace(auth)
+	if len(auth) < 7 || !strings.EqualFold(auth[:7], "bearer ") {
+		return false
+	}
+	return tokenEqual(strings.TrimSpace(auth[7:]), token)
+}
+
+func tokenEqual(got, want string) bool {
+	if want == "" {
+		return false
+	}
+	gb := []byte(got)
+	wb := []byte(want)
+	if len(gb) != len(wb) {
+		subtle.ConstantTimeCompare(wb, wb)
+		return false
+	}
+	return subtle.ConstantTimeCompare(gb, wb) == 1
 }
 
 func WriteFamilies(w io.Writer, families []*dto.MetricFamily) error {

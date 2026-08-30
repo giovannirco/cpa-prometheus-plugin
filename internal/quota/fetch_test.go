@@ -135,3 +135,46 @@ func TestPollSkipsDisabledUnlessConfigured(t *testing.T) {
 		t.Fatalf("include-disabled: %#v", accounts)
 	}
 }
+
+func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
+	raw := []byte(`{"access_token":"tok","account_id":"acct","project_id":"proj"}`)
+	for _, provider := range []string{"claude", "codex", "antigravity", "kimi", "xai"} {
+		req, err := providerRequest(provider, "tok", raw)
+		if err != nil {
+			t.Fatalf("%s: %v", provider, err)
+		}
+		if err := checkQuotaURL(req.URL); err != nil {
+			t.Fatalf("%s url %s: %v", provider, req.URL, err)
+		}
+		if !strings.HasPrefix(req.URL, "https://") {
+			t.Fatalf("%s not https: %s", provider, req.URL)
+		}
+	}
+	if _, err := providerRequest("cursor", "tok", raw); err == nil {
+		t.Fatal("unknown provider should fail")
+	}
+	if err := checkQuotaURL("http://api.anthropic.com/api/oauth/usage"); err == nil {
+		t.Fatal("http must be rejected")
+	}
+	if err := checkQuotaURL("https://evil.example/steal"); err == nil {
+		t.Fatal("unknown host must be rejected")
+	}
+	if err := checkQuotaURL("https://user:pass@api.anthropic.com/api/oauth/usage"); err == nil {
+		t.Fatal("userinfo must be rejected")
+	}
+}
+
+func TestPollCapsHugeConcurrency(t *testing.T) {
+	host := &fakeHost{
+		files: []AuthFile{{AuthIndex: "a1", Provider: "xai", Status: "active"}},
+		json:  map[string][]byte{"a1": []byte(`{"access_token":"x"}`)},
+		http: func(HTTPRequest) (HTTPResponse, error) {
+			return HTTPResponse{StatusCode: 200, Body: []byte(`{"config":{}}`)}, nil
+		},
+	}
+	cfg := DefaultConfig()
+	cfg.MaxConcurrency = 1_000_000
+	if _, _, err := Poll(host, cfg); err != nil {
+		t.Fatal(err)
+	}
+}

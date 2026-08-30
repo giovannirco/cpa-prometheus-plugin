@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +60,9 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 	}
 	if cfg.MaxConcurrency <= 0 {
 		cfg.MaxConcurrency = 4
+	}
+	if cfg.MaxConcurrency > MaxPollConcurrency {
+		cfg.MaxConcurrency = MaxPollConcurrency
 	}
 	files, err := host.ListAuth()
 	if err != nil {
@@ -185,7 +189,7 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 	case "claude":
 		headers["anthropic-beta"] = []string{"oauth-2025-04-20"}
 		headers["User-Agent"] = []string{"claude-code/2.1.0"}
-		return HTTPRequest{Method: http.MethodGet, URL: "https://api.anthropic.com/api/oauth/usage", Headers: headers}, nil
+		return quotaHTTPRequest(http.MethodGet, "https://api.anthropic.com/api/oauth/usage", headers, nil)
 	case "codex":
 		accountID := lookupString(raw, "account_id")
 		if accountID == "" {
@@ -199,7 +203,7 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 		}
 		headers["Chatgpt-Account-Id"] = []string{accountID}
 		headers["User-Agent"] = []string{"codex_cli_rs/0.76.0 (linux; amd64)"}
-		return HTTPRequest{Method: http.MethodGet, URL: "https://chatgpt.com/backend-api/wham/usage", Headers: headers}, nil
+		return quotaHTTPRequest(http.MethodGet, "https://chatgpt.com/backend-api/wham/usage", headers, nil)
 	case "antigravity":
 		projectID := lookupString(raw, "project_id")
 		if projectID == "" {
@@ -208,17 +212,40 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 		body, _ := json.Marshal(map[string]any{"project": projectID})
 		headers["Content-Type"] = []string{"application/json"}
 		headers["User-Agent"] = []string{"antigravity/1.21.9 linux/amd64"}
-		return HTTPRequest{Method: http.MethodPost, URL: "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels", Headers: headers, Body: body}, nil
+		return quotaHTTPRequest(http.MethodPost, "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels", headers, body)
 	case "kimi":
 		headers["User-Agent"] = []string{"kimi-cli/1.0"}
-		return HTTPRequest{Method: http.MethodGet, URL: "https://api.kimi.com/coding/v1/usages", Headers: headers}, nil
+		return quotaHTTPRequest(http.MethodGet, "https://api.kimi.com/coding/v1/usages", headers, nil)
 	case "xai":
 		headers["x-xai-token-auth"] = []string{"xai-grok-cli"}
 		headers["x-grok-client-version"] = []string{"0.2.91"}
 		headers["User-Agent"] = []string{"grok-shell/0.2.91"}
-		return HTTPRequest{Method: http.MethodGet, URL: "https://cli-chat-proxy.grok.com/v1/billing?format=credits", Headers: headers}, nil
+		return quotaHTTPRequest(http.MethodGet, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", headers, nil)
 	default:
 		return HTTPRequest{}, fmt.Errorf("unsupported")
+	}
+}
+
+func quotaHTTPRequest(method, rawURL string, headers map[string][]string, body []byte) (HTTPRequest, error) {
+	if err := checkQuotaURL(rawURL); err != nil {
+		return HTTPRequest{}, err
+	}
+	return HTTPRequest{Method: method, URL: rawURL, Headers: headers, Body: body}, nil
+}
+
+func checkQuotaURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("unsupported")
+	}
+	if u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return fmt.Errorf("unsupported")
+	}
+	switch strings.ToLower(u.Hostname()) {
+	case "api.anthropic.com", "chatgpt.com", "cloudcode-pa.googleapis.com", "api.kimi.com", "cli-chat-proxy.grok.com":
+		return nil
+	default:
+		return fmt.Errorf("unsupported")
 	}
 }
 

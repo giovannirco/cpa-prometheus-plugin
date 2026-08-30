@@ -290,6 +290,49 @@ func TestObserveUsageKeepsProviderAndModel(t *testing.T) {
 	}
 }
 
+func TestExpositionKeepsShippedFamiliesAndEmail(t *testing.T) {
+	c := New("0.1.6")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:    "xai",
+		AuthIndex:   "a1",
+		Status:      "active",
+		Email:       "gio@example.com",
+		AccountType: "oauth",
+		ProjectID:   "proj-9",
+	}})
+	c.ObserveUsage(UsageRecord{
+		Provider:    "xai",
+		Model:       "grok-4.6",
+		AuthIndex:   "a1",
+		RequestedAt: time.Unix(1_700_000_111, 0).UTC(),
+		Latency:     time.Millisecond,
+		Detail:      TokenDetail{InputTokens: 1, TotalTokens: 1},
+	})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"cliproxy_info",
+		"cliproxy_up",
+		"cliproxy_credentials",
+		"cliproxy_requests_total",
+		"cliproxy_tokens_total",
+		"cliproxy_last_request_timestamp_seconds",
+		"cliproxy_auth_runtime_only",
+		"cliproxy_auth_project_info",
+		`email="gio@example.com"`,
+		`model="grok-4.6"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "sk-") || strings.Contains(text, "/root/") {
+		t.Fatalf("secret/path leaked:\n%s", text)
+	}
+}
+
 func TestObserveUsageWritesLastRequestTimestamp(t *testing.T) {
 	c := New("0.1.4")
 	c.ApplyCredentials([]quota.Credential{{

@@ -10,6 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	MaxConfigYAMLBytes = 64 << 10
+	MaxConcurrency     = 16
+	maxQuotaInterval   = 24 * time.Hour
+	maxRequestTimeout  = 2 * time.Minute
+)
+
 type Config struct {
 	QuotaRefreshInterval time.Duration
 	RequestTimeout       time.Duration
@@ -47,6 +54,9 @@ func Parse(request []byte) (Config, error) {
 	if strings.TrimSpace(text) == "" {
 		return cfg, nil
 	}
+	if len(text) > MaxConfigYAMLBytes {
+		return cfg, fmt.Errorf("plugin config yaml exceeds %d bytes", MaxConfigYAMLBytes)
+	}
 	var raw struct {
 		QuotaRefreshInterval string `yaml:"quota-refresh-interval"`
 		RequestTimeout       string `yaml:"request-timeout"`
@@ -59,15 +69,15 @@ func Parse(request []byte) (Config, error) {
 	}
 	if raw.QuotaRefreshInterval != "" {
 		d, err := time.ParseDuration(raw.QuotaRefreshInterval)
-		if err != nil || d < time.Minute {
-			return cfg, fmt.Errorf("quota-refresh-interval must be a Go duration >= 1m")
+		if err != nil || d < time.Minute || d > maxQuotaInterval {
+			return cfg, fmt.Errorf("quota-refresh-interval must be a Go duration between 1m and 24h")
 		}
 		cfg.QuotaRefreshInterval = d
 	}
 	if raw.RequestTimeout != "" {
 		d, err := time.ParseDuration(raw.RequestTimeout)
-		if err != nil || d < time.Second {
-			return cfg, fmt.Errorf("request-timeout must be a Go duration >= 1s")
+		if err != nil || d < time.Second || d > maxRequestTimeout {
+			return cfg, fmt.Errorf("request-timeout must be a Go duration between 1s and 2m")
 		}
 		cfg.RequestTimeout = d
 	}
@@ -75,6 +85,9 @@ func Parse(request []byte) (Config, error) {
 		cfg.IncludeDisabled = *raw.IncludeDisabled
 	}
 	cfg.ScrapeToken = strings.TrimSpace(raw.ScrapeToken)
+	if raw.MaxConcurrency > MaxConcurrency {
+		return cfg, fmt.Errorf("max-concurrency must be <= %d", MaxConcurrency)
+	}
 	if raw.MaxConcurrency > 0 {
 		cfg.MaxConcurrency = raw.MaxConcurrency
 	}

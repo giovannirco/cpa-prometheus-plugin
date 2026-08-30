@@ -61,6 +61,8 @@ type Config struct {
 	MaxConcurrency  int
 }
 
+const MaxPollConcurrency = 16
+
 func DefaultConfig() Config {
 	return Config{
 		Interval:       5 * time.Minute,

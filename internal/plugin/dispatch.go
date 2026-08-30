@@ -24,7 +24,7 @@ const (
 	metricsManagePath   = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.1.5"
+var PluginVersion = "0.1.6"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
