@@ -1,0 +1,10 @@
+dist/
+*.so
+*.h
+*.dylib
+*.dll
+*.zip
+coverage.out
+.DS_Store
+core
+qemu-*

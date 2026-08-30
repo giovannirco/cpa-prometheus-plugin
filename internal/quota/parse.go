@@ -1,0 +1,378 @@
+package quota
+
+import (
+	"encoding/json"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func ParseWindows(provider string, body []byte) []Window {
+	if len(body) == 0 {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil
+	}
+	switch NormalizeProvider(provider) {
+	case "claude":
+		return parseClaude(payload)
+	case "codex":
+		return parseCodex(payload)
+	case "antigravity":
+		return parseAntigravity(payload)
+	case "kimi":
+		return parseKimi(payload)
+	case "xai":
+		return parseXAI(payload)
+	case "gemini", "gemini-cli":
+		return parseGemini(payload)
+	default:
+		return parseGeneric(payload)
+	}
+}
+
+func NormalizeProvider(provider string) string {
+	p := strings.ToLower(strings.TrimSpace(provider))
+	switch p {
+	case "anthropic", "claude", "claude-web":
+		return "claude"
+	case "openai", "codex", "chatgpt":
+		return "codex"
+	case "gemini", "gemini-cli":
+		return "gemini-cli"
+	case "grok", "xai", "x-ai":
+		return "xai"
+	case "kimi", "moonshot", "kimi-coding":
+		return "kimi"
+	default:
+		return p
+	}
+}
+
+func SupportedProvider(provider string) bool {
+	switch NormalizeProvider(provider) {
+	case "claude", "codex", "antigravity", "kimi", "xai":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseClaude(payload map[string]any) []Window {
+	out := make([]Window, 0, 4)
+	for _, key := range []string{"five_hour", "seven_day"} {
+		window, _ := payload[key].(map[string]any)
+		if window == nil {
+			continue
+		}
+		used := ratio(window["utilization"])
+		out = append(out, Window{
+			ID:             key,
+			UsedRatio:      used,
+			RemainingRatio: inverse(used),
+			ResetUnix:      unixTime(window["resets_at"]),
+		})
+	}
+	if limits, ok := payload["limits"].([]any); ok {
+		for _, raw := range limits {
+			item, _ := raw.(map[string]any)
+			if item == nil {
+				continue
+			}
+			id := firstString(item["type"], item["name"], item["id"])
+			if id == "" {
+				continue
+			}
+			used := ratio(firstValue(item["utilization"], item["used_percent"], item["used"]))
+			out = append(out, Window{ID: slug(id), UsedRatio: used, RemainingRatio: inverse(used), ResetUnix: unixTime(firstValue(item["resets_at"], item["reset_at"]))})
+		}
+	}
+	return out
+}
+
+func parseCodex(payload map[string]any) []Window {
+	out := make([]Window, 0, 4)
+	rate, _ := payload["rate_limit"].(map[string]any)
+	if rate == nil {
+		rate = payload
+	}
+	for _, item := range []struct{ id, key string }{{"primary", "primary_window"}, {"secondary", "secondary_window"}} {
+		w, _ := rate[item.key].(map[string]any)
+		if w == nil {
+			continue
+		}
+		used := percentRatio(w["used_percent"])
+		if used == 0 {
+			used = ratio(w["used_ratio"])
+		}
+		out = append(out, Window{ID: item.id, UsedRatio: used, RemainingRatio: inverse(used), ResetUnix: unixTime(firstValue(w["reset_at"], w["resets_at"], w["reset_after"]))})
+	}
+	return out
+}
+
+func parseAntigravity(payload map[string]any) []Window {
+	out := make([]Window, 0)
+	models, _ := payload["models"].([]any)
+	if models == nil {
+		if m, ok := payload["models"].(map[string]any); ok {
+			for id, raw := range m {
+				item, _ := raw.(map[string]any)
+				if item == nil {
+					continue
+				}
+				out = append(out, antigravityWindow(id, item))
+			}
+			return compactWindows(out)
+		}
+	}
+	for _, raw := range models {
+		item, _ := raw.(map[string]any)
+		if item == nil {
+			continue
+		}
+		id := firstString(item["name"], item["id"], item["model"])
+		out = append(out, antigravityWindow(id, item))
+	}
+	return compactWindows(out)
+}
+
+func antigravityWindow(id string, item map[string]any) Window {
+	info, _ := item["quotaInfo"].(map[string]any)
+	if info == nil {
+		info = item
+	}
+	remaining := ratio(firstValue(info["remainingFraction"], info["remaining_fraction"], info["remaining"]))
+	used := inverse(remaining)
+	if remaining == 0 && info["used_percent"] != nil {
+		used = percentRatio(info["used_percent"])
+		remaining = inverse(used)
+	}
+	if id == "" {
+		id = "model"
+	}
+	return Window{ID: slug(id), UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(info["resetTime"], info["reset_time"], info["resets_at"]))}
+}
+
+func parseGemini(payload map[string]any) []Window {
+	buckets, _ := payload["buckets"].([]any)
+	out := make([]Window, 0, len(buckets))
+	for _, raw := range buckets {
+		b, _ := raw.(map[string]any)
+		if b == nil {
+			continue
+		}
+		id := firstString(b["modelId"], b["model_id"], b["id"])
+		if id == "" {
+			continue
+		}
+		remaining := ratio(firstValue(b["remainingFraction"], b["remaining_fraction"]))
+		out = append(out, Window{ID: slug(id), UsedRatio: inverse(remaining), RemainingRatio: remaining, ResetUnix: unixTime(firstValue(b["resetTime"], b["reset_time"]))})
+	}
+	return out
+}
+
+func parseKimi(payload map[string]any) []Window {
+	out := make([]Window, 0)
+	if limits, ok := payload["limits"].([]any); ok {
+		for i, raw := range limits {
+			item, _ := raw.(map[string]any)
+			if item == nil {
+				continue
+			}
+			id := firstString(item["type"], item["name"], item["id"])
+			if id == "" {
+				id = "limit_" + strconv.Itoa(i)
+			}
+			used, remaining := usedRemaining(item)
+			out = append(out, Window{ID: slug(id), UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(item["resets_at"], item["reset_at"], item["resetTime"]))})
+		}
+	}
+	for _, key := range []string{"five_hour", "weekly", "seven_day"} {
+		w, _ := payload[key].(map[string]any)
+		if w == nil {
+			continue
+		}
+		used, remaining := usedRemaining(w)
+		out = append(out, Window{ID: key, UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(w["resets_at"], w["reset_at"]))})
+	}
+	return compactWindows(out)
+}
+
+func parseXAI(payload map[string]any) []Window {
+	credits, _ := payload["credits"].(map[string]any)
+	if credits == nil {
+		credits = payload
+	}
+	used, remaining := usedRemaining(credits)
+	id := firstString(credits["window"], payload["window"], "credits")
+	if id == "" {
+		id = "credits"
+	}
+	return []Window{{
+		ID:             slug(id),
+		UsedRatio:      used,
+		RemainingRatio: remaining,
+		ResetUnix:      unixTime(firstValue(credits["resets_at"], credits["reset_at"], payload["resets_at"], payload["period_end"])),
+	}}
+}
+
+func parseGeneric(payload map[string]any) []Window {
+	used, remaining := usedRemaining(payload)
+	if used == 0 && remaining == 0 {
+		return nil
+	}
+	return []Window{{ID: "default", UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(payload["resets_at"], payload["reset_at"]))}}
+}
+
+func usedRemaining(m map[string]any) (used, remaining float64) {
+	if m == nil {
+		return 0, 0
+	}
+	if m["utilization"] != nil {
+		used = ratio(m["utilization"])
+		return used, inverse(used)
+	}
+	if m["used_percent"] != nil {
+		used = percentRatio(m["used_percent"])
+		return used, inverse(used)
+	}
+	if m["remainingFraction"] != nil || m["remaining_fraction"] != nil {
+		remaining = ratio(firstValue(m["remainingFraction"], m["remaining_fraction"]))
+		return inverse(remaining), remaining
+	}
+	limit := floatNumber(firstValue(m["limit"], m["total"], m["quota"]))
+	usedN := floatNumber(firstValue(m["used"], m["consumed"]))
+	remainN := floatNumber(firstValue(m["remaining"], m["remain"]))
+	if limit > 0 {
+		if remainN > 0 && usedN == 0 {
+			usedN = limit - remainN
+		}
+		if usedN > 0 && remainN == 0 {
+			remainN = math.Max(limit-usedN, 0)
+		}
+		return clamp(usedN / limit), clamp(remainN / limit)
+	}
+	return 0, 0
+}
+
+func compactWindows(in []Window) []Window {
+	out := in[:0]
+	for _, w := range in {
+		if w.ID == "" {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+func ratio(v any) float64 {
+	n := floatNumber(v)
+	if n > 1 && n <= 100 {
+		return clamp(n / 100)
+	}
+	return clamp(n)
+}
+
+func percentRatio(v any) float64 {
+	return clamp(floatNumber(v) / 100)
+}
+
+func inverse(used float64) float64 { return clamp(1 - used) }
+
+func clamp(v float64) float64 {
+	if v < 0 || math.IsNaN(v) {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func floatNumber(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case int:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case json.Number:
+		f, _ := n.Float64()
+		return f
+	case string:
+		f, _ := strconv.ParseFloat(strings.TrimSpace(n), 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func unixTime(v any) int64 {
+	switch t := v.(type) {
+	case float64:
+		if t > 1e12 {
+			return int64(t / 1000)
+		}
+		return int64(t)
+	case int64:
+		return t
+	case json.Number:
+		i, _ := t.Int64()
+		return i
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return 0
+		}
+		if unix, err := strconv.ParseInt(s, 10, 64); err == nil && unix > 0 {
+			return unix
+		}
+		if ts, err := time.Parse(time.RFC3339, s); err == nil {
+			return ts.Unix()
+		}
+		if ts, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return ts.Unix()
+		}
+	}
+	return 0
+}
+
+func firstString(values ...any) string {
+	for _, v := range values {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
+}
+
+func firstValue(values ...any) any {
+	for _, v := range values {
+		if v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func slug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "window"
+	}
+	return b.String()
+}
