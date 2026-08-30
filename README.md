@@ -15,6 +15,8 @@ CPA resource routes are **not** management-authenticated. The store maintainer w
 | `GET /v0/management/plugins/cpa-prometheus/metrics` | CPA management key (`Authorization: Bearer`). Always served. |
 | `GET /v0/resource/plugins/cpa-prometheus/metrics` | **401 by default.** Set `public-metrics: true` for an open LAN scrape, or set `scrape-token` and send `Authorization: Bearer` / `X-Scrape-Token`. |
 
+If `scrape-token` is set, it **wins**: resource GET is 401 unless the token is presented, even when `public-metrics` is true.
+
 Grafana Alloy example (dedicated scrape token, not the management key):
 
 ```alloy
@@ -26,7 +28,7 @@ prometheus.scrape "cliproxyapi" {
 }
 ```
 
-Prometheus Operator `ServiceMonitor` `bearerTokenSecret` works the same way.
+Prometheus Operator `ServiceMonitor` `bearerTokenSecret` works the same way. For an open LAN scrape, set `public-metrics: true` and leave `scrape-token` empty; a Kubernetes scrape with `prometheus.io/scrape` + `prometheus.io/path` is enough.
 
 Token-shaped values, cookies, file paths, and raw API keys are dropped from labels. Email stays as an identifier.
 
@@ -126,15 +128,17 @@ plugins:
       enabled: true
       priority: 50
       quota-refresh-interval: 5m
+      public-metrics: false
+      # scrape-token: "<dedicated token>"  # if set, Bearer / X-Scrape-Token required
 ```
 
 If `config.yaml` is a read-only Secret, `enabled: true` has to be in that file already. Store Install cannot persist config onto a read-only mount.
 
-Releases are linux/amd64 zip files with `cpa-prometheus.so` at the zip root plus a `checksums.txt`. CPA installs that as `plugins/linux/amd64/cpa-prometheus-v<version>.so`. Restart if you get a loaded-plugin lock.
+Release zips are `cpa-prometheus_<version>_<goos>_<goarch>.zip` with the library at the zip root (`cpa-prometheus.so` / `.dylib`) plus a combined `checksums.txt`. CPA installs linux/amd64 as `plugins/linux/amd64/cpa-prometheus-v<version>.so`. Restart if you get a loaded-plugin lock. Current GHA matrix: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. No Windows zip.
 
-Store Install uses the GitHub API and 403s when unauthenticated rate limits kick in. Download the zip, check the sha256, and copy the `.so` into the plugins directory yourself.
+Store Install uses the GitHub API and 403s when unauthenticated rate limits kick in. Download the zip, check the sha256, and copy the library into the plugins directory yourself.
 
-Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Qemu on a Mac has segfaulted for me mid-compile; don't ship those leftovers.
+Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac has segfaulted mid-compile; don't ship those leftovers.
 
 ## Config
 
