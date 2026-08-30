@@ -357,6 +357,27 @@ func TestApplyCredentialsWritesRuntimeOnlyLastRefreshProjectID(t *testing.T) {
 	}
 }
 
+func TestApplyCredentialsWritesUpdatedAt(t *testing.T) {
+	c := New("0.1.5")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:      "xai",
+		AuthIndex:     "a1",
+		Status:        "active",
+		Email:         "gio@example.com",
+		UpdatedAtUnix: 1_700_000_333,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_auth_updated_timestamp_seconds") {
+		t.Fatalf("updated_at missing:\n%s", text)
+	}
+	if got, ok := metricFloat(text, "cliproxy_auth_updated_timestamp_seconds"); !ok || got != 1_700_000_333 {
+		t.Fatalf("updated unix=%v ok=%v:\n%s", got, ok, text)
+	}
+}
+
 func TestApplyCredentialsOmitsProjectInfoWhenEmpty(t *testing.T) {
 	c := New("0.1.4")
 	c.ApplyCredentials([]quota.Credential{{

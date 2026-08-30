@@ -34,6 +34,7 @@ type Credential struct {
 	Failed          int64
 	NextRetryUnix   int64
 	LastRefreshUnix int64
+	UpdatedAtUnix   int64
 	ProjectID       string
 	Models          []ModelAvailability
 }

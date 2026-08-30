@@ -44,6 +44,7 @@ From `host.auth.list`, refreshed on the quota tick:
 | `cliproxy_auth_next_retry_timestamp_seconds` | unix, only while the cred is cooling down |
 | `cliproxy_auth_runtime_only` | 0/1, no backing auth file |
 | `cliproxy_auth_last_refresh_timestamp_seconds` | unix, only when `last_refresh` is set |
+| `cliproxy_auth_updated_timestamp_seconds` | unix, only when `updated_at` is set |
 | `cliproxy_auth_project_info` | 1 with `project_id` when host.auth.list has one (Antigravity) |
 
 Quota, default interval 5 minutes:
@@ -114,7 +115,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.4 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.1.5 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

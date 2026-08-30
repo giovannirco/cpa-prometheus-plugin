@@ -73,6 +73,7 @@ func TestHostAuthListCopiesLastRefreshProjectIDRuntimeOnly(t *testing.T) {
 				"email":        "gio@example.com",
 				"runtime_only": true,
 				"last_refresh": "2023-11-14T22:15:22Z",
+				"updated_at":   "2023-11-14T22:16:13Z",
 				"project_id":   "proj-9",
 				"path":         "/root/.cli-proxy-api/secret.json",
 			}},
@@ -94,6 +95,9 @@ func TestHostAuthListCopiesLastRefreshProjectIDRuntimeOnly(t *testing.T) {
 	}
 	if f.LastRefreshUnix != 1_700_000_122 {
 		t.Fatalf("last_refresh unix=%d want 1700000122: %#v", f.LastRefreshUnix, f)
+	}
+	if f.UpdatedAtUnix != 1_700_000_173 {
+		t.Fatalf("updated_at unix=%d want 1700000173: %#v", f.UpdatedAtUnix, f)
 	}
 	dump := fmt.Sprintf("%#v", f)
 	if strings.Contains(dump, "/root/.cli-proxy-api") {

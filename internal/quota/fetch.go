@@ -24,6 +24,7 @@ type AuthFile struct {
 	Failed          int64
 	NextRetryUnix   int64
 	LastRefreshUnix int64
+	UpdatedAtUnix   int64
 	ProjectID       string
 }
 
@@ -100,6 +101,7 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 			Failed:          file.Failed,
 			NextRetryUnix:   file.NextRetryUnix,
 			LastRefreshUnix: file.LastRefreshUnix,
+			UpdatedAtUnix:   file.UpdatedAtUnix,
 			ProjectID:       file.ProjectID,
 			Models:          models,
 		})

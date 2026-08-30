@@ -34,6 +34,7 @@ type hostAuthFile struct {
 	Failed         int64                     `json:"failed"`
 	NextRetryAfter time.Time                 `json:"next_retry_after"`
 	LastRefresh    time.Time                 `json:"last_refresh"`
+	UpdatedAt      time.Time                 `json:"updated_at"`
 	Email          string                    `json:"email"`
 	AccountType    string                    `json:"account_type"`
 	ProjectID      string                    `json:"project_id"`
@@ -90,6 +91,10 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 		if !f.LastRefresh.IsZero() {
 			lastRefresh = f.LastRefresh.Unix()
 		}
+		updatedAt := int64(0)
+		if !f.UpdatedAt.IsZero() {
+			updatedAt = f.UpdatedAt.Unix()
+		}
 		out = append(out, quota.AuthFile{
 			AuthIndex:       f.AuthIndex,
 			Provider:        f.Provider,
@@ -104,6 +109,7 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 			Failed:          f.Failed,
 			NextRetryUnix:   nextRetry,
 			LastRefreshUnix: lastRefresh,
+			UpdatedAtUnix:   updatedAt,
 			ProjectID:       f.ProjectID,
 		})
 	}

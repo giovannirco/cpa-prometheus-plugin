@@ -72,6 +72,7 @@ type Collector struct {
 	authNextRetry    *prometheus.GaugeVec
 	authRuntimeOnly  *prometheus.GaugeVec
 	authLastRefresh  *prometheus.GaugeVec
+	authUpdated      *prometheus.GaugeVec
 	authProjectInfo  *prometheus.GaugeVec
 	lastRequest      *prometheus.GaugeVec
 	modelSeen        *prometheus.GaugeVec
@@ -211,6 +212,11 @@ func New(version string) *Collector {
 		Help:        "Unix timestamp of host.auth.list last_refresh when present.",
 		ConstLabels: constLabels,
 	}, []string{"provider", "auth_index", "email"})
+	c.authUpdated = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_updated_timestamp_seconds",
+		Help:        "Unix timestamp of host.auth.list updated_at when present.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email"})
 	c.authProjectInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_project_info",
 		Help:        "1 if host.auth.list reports a project_id for this credential.",
@@ -237,7 +243,7 @@ func New(version string) *Collector {
 		c.requests, c.failures, c.duration, c.tokens,
 		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaErrors,
 		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
-		c.authRuntimeOnly, c.authLastRefresh, c.authProjectInfo, c.lastRequest,
+		c.authRuntimeOnly, c.authLastRefresh, c.authUpdated, c.authProjectInfo, c.lastRequest,
 	)
 	c.info.WithLabelValues(version).Set(1)
 	c.up.Set(1)
@@ -314,6 +320,7 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 	c.authNextRetry.Reset()
 	c.authRuntimeOnly.Reset()
 	c.authLastRefresh.Reset()
+	c.authUpdated.Reset()
 	c.authProjectInfo.Reset()
 	c.modelAvailable.Reset()
 	c.mu.Lock()
@@ -353,6 +360,9 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 		c.authRuntimeOnly.WithLabelValues(provider, authIndex, email).Set(runtimeOnly)
 		if cred.LastRefreshUnix > 0 {
 			c.authLastRefresh.WithLabelValues(provider, authIndex, email).Set(float64(cred.LastRefreshUnix))
+		}
+		if cred.UpdatedAtUnix > 0 {
+			c.authUpdated.WithLabelValues(provider, authIndex, email).Set(float64(cred.UpdatedAtUnix))
 		}
 		if projectID := labels.ProjectID(cred.ProjectID); projectID != "unknown" && strings.TrimSpace(cred.ProjectID) != "" {
 			c.authProjectInfo.WithLabelValues(provider, authIndex, email, projectID).Set(1)
