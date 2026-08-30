@@ -11,7 +11,7 @@ python3 grafana/build.py
 ## Import
 
 1. Grafana → Dashboards → New → Import → upload `cliproxy.json` (or paste).
-2. Pick a Prometheus-compatible datasource. The dashboard variable defaults to uid `mimir` so a Grafana that already has that uid (cddlabs) just works.
+2. Pick a Prometheus-compatible datasource. The dashboard variable defaults to uid `mimir`; Grafana rebinds it on import if that uid is missing.
 3. Leave Provider and Email on **All**. Multi-select uses `${provider:regex}` / `${email:regex}` with `allValue=.*`.
 
 Scrape must already be in Prometheus / Mimir / Alloy:
