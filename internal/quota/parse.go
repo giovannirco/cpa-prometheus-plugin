@@ -202,21 +202,55 @@ func parseKimi(payload map[string]any) []Window {
 }
 
 func parseXAI(payload map[string]any) []Window {
-	credits, _ := payload["credits"].(map[string]any)
-	if credits == nil {
-		credits = payload
+	out := make([]Window, 0, 4)
+	config, _ := payload["config"].(map[string]any)
+	period := map[string]any{}
+	if config != nil {
+		if p, ok := config["currentPeriod"].(map[string]any); ok {
+			period = p
+		}
 	}
-	used, remaining := usedRemaining(credits)
-	id := firstString(credits["window"], payload["window"], "credits")
-	if id == "" {
-		id = "credits"
+	reset := unixTime(firstValue(
+		payload["resets_at"], payload["period_end"], payload["billingPeriodEnd"],
+		configValue(config, "billingPeriodEnd"),
+		period["end"],
+	))
+	if config != nil && config["creditUsagePercent"] != nil {
+		used := percentRatio(config["creditUsagePercent"])
+		out = append(out, Window{ID: "weekly", UsedRatio: used, RemainingRatio: inverse(used), ResetUnix: reset})
 	}
-	return []Window{{
-		ID:             slug(id),
-		UsedRatio:      used,
-		RemainingRatio: remaining,
-		ResetUnix:      unixTime(firstValue(credits["resets_at"], credits["reset_at"], payload["resets_at"], payload["period_end"])),
-	}}
+	if credits, ok := payload["credits"].(map[string]any); ok {
+		used, remaining := usedRemaining(credits)
+		out = append(out, Window{ID: "credits", UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(credits["resets_at"], credits["reset_at"], reset))})
+	}
+	for _, key := range []string{"weekly", "grok_build", "grokbuild", "grokBuild"} {
+		w, _ := payload[key].(map[string]any)
+		if w == nil && config != nil {
+			w, _ = config[key].(map[string]any)
+		}
+		if w == nil {
+			continue
+		}
+		used, remaining := usedRemaining(w)
+		if used == 0 && remaining == 0 && w["used_percent"] == nil && w["utilization"] == nil {
+			continue
+		}
+		out = append(out, Window{ID: slug(key), UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(w["resets_at"], w["reset_at"], reset))})
+	}
+	if len(out) == 0 {
+		used, remaining := usedRemaining(payload)
+		if used != 0 || remaining != 0 {
+			out = append(out, Window{ID: "credits", UsedRatio: used, RemainingRatio: remaining, ResetUnix: reset})
+		}
+	}
+	return compactWindows(out)
+}
+
+func configValue(config map[string]any, key string) any {
+	if config == nil {
+		return nil
+	}
+	return config[key]
 }
 
 func parseGeneric(payload map[string]any) []Window {

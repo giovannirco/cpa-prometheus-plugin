@@ -63,6 +63,20 @@ func TestParseXAICredits(t *testing.T) {
 	}
 }
 
+func TestParseXAICreditUsagePercent(t *testing.T) {
+	body := []byte(`{"config":{"creditUsagePercent":8,"currentPeriod":{"end":"2026-09-02T07:52:00Z"}}}`)
+	got := ParseWindows("xai", body)
+	if len(got) != 1 {
+		t.Fatalf("len=%d %#v", len(got), got)
+	}
+	if got[0].ID != "weekly" || math.Abs(got[0].UsedRatio-0.08) > 1e-9 || math.Abs(got[0].RemainingRatio-0.92) > 1e-9 {
+		t.Fatalf("got %#v", got[0])
+	}
+	if got[0].ResetUnix == 0 {
+		t.Fatal("missing reset")
+	}
+}
+
 func TestParseDoesNotRequireTokensInBody(t *testing.T) {
 	got := ParseWindows("claude", []byte(`{"five_hour":{"utilization":0}}`))
 	if len(got) != 1 {
