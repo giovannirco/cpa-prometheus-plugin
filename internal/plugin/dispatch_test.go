@@ -30,6 +30,27 @@ func TestUsageHandleIncrementsShippedCollector(t *testing.T) {
 	}
 }
 
+func TestUsageHandleWritesLastRequestTimestamp(t *testing.T) {
+	rt := NewRuntime(nil)
+	_ = rt.Handle("plugin.register", nil)
+	usage := []byte(`{"Provider":"xai","Model":"grok-4.6","AuthIndex":"a1","RequestedAt":"2023-11-14T22:13:20Z","Latency":1000000,"Failed":false,"Detail":{"InputTokens":1,"TotalTokens":1}}`)
+	raw := rt.Handle("usage.handle", usage)
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+		t.Fatalf("env=%s", raw)
+	}
+	text, err := rt.Collector().Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_last_request_timestamp_seconds") {
+		t.Fatalf("last_request missing:\n%s", text)
+	}
+	if !strings.Contains(text, "1.7e+09") && !strings.Contains(text, "1700000000") {
+		t.Fatalf("RequestedAt unix missing:\n%s", text)
+	}
+}
+
 func TestManagementHandleServesRealMetricsHandler(t *testing.T) {
 	rt := NewRuntime(nil)
 	_ = rt.Handle("plugin.register", nil)

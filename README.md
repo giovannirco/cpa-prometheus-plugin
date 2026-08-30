@@ -28,6 +28,7 @@ From each completed proxy request (`usage.handle`):
 | `cliproxy_tokens_total` | counter (`type` = input, output, reasoning, cached, cache_read, cache_creation, total) |
 | `cliproxy_models_seen` | gauge of distinct models seen so far |
 | `cliproxy_model_seen` | 1 per `provider`,`model` once observed |
+| `cliproxy_last_request_timestamp_seconds` | unix of `usage.handle` `RequestedAt` (or now if CPA omitted it) |
 
 CPA has no host model-list callback. `cliproxy_model_available` is emitted only when `host.auth.get_runtime` includes `model_states`.
 
@@ -41,6 +42,9 @@ From `host.auth.list`, refreshed on the quota tick:
 | `cliproxy_auth_disabled` | 0/1 |
 | `cliproxy_auth_unavailable` | 0/1 |
 | `cliproxy_auth_next_retry_timestamp_seconds` | unix, only while the cred is cooling down |
+| `cliproxy_auth_runtime_only` | 0/1, no backing auth file |
+| `cliproxy_auth_last_refresh_timestamp_seconds` | unix, only when `last_refresh` is set |
+| `cliproxy_auth_project_info` | 1 with `project_id` when host.auth.list has one (Antigravity) |
 
 Quota, default interval 5 minutes:
 
@@ -63,7 +67,7 @@ Window ids:
 - Antigravity: `gemini_weekly`, `claude_gpt_weekly` (per-model rows from `fetchAvailableModels` are folded into those two)
 - xAI: `weekly`. `grok_build` only if the billing JSON actually contains it
 
-Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
+Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
 
 Per-account fetch failures increment the error counter and leave the last good gauges. They do not take down CPA.
 
@@ -110,7 +114,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.2 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.1.4 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

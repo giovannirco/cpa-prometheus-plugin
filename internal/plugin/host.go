@@ -33,8 +33,10 @@ type hostAuthFile struct {
 	Success        int64                     `json:"success"`
 	Failed         int64                     `json:"failed"`
 	NextRetryAfter time.Time                 `json:"next_retry_after"`
+	LastRefresh    time.Time                 `json:"last_refresh"`
 	Email          string                    `json:"email"`
 	AccountType    string                    `json:"account_type"`
+	ProjectID      string                    `json:"project_id"`
 	Name           string                    `json:"name"`
 	Path           string                    `json:"path"`
 	ModelStates    map[string]hostModelState `json:"model_states"`
@@ -84,19 +86,25 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 		if !f.NextRetryAfter.IsZero() {
 			nextRetry = f.NextRetryAfter.Unix()
 		}
+		lastRefresh := int64(0)
+		if !f.LastRefresh.IsZero() {
+			lastRefresh = f.LastRefresh.Unix()
+		}
 		out = append(out, quota.AuthFile{
-			AuthIndex:     f.AuthIndex,
-			Provider:      f.Provider,
-			Type:          f.Type,
-			Status:        f.Status,
-			Email:         f.Email,
-			AccountType:   f.AccountType,
-			Disabled:      f.Disabled,
-			Unavailable:   f.Unavailable,
-			RuntimeOnly:   f.RuntimeOnly,
-			Success:       f.Success,
-			Failed:        f.Failed,
-			NextRetryUnix: nextRetry,
+			AuthIndex:       f.AuthIndex,
+			Provider:        f.Provider,
+			Type:            f.Type,
+			Status:          f.Status,
+			Email:           f.Email,
+			AccountType:     f.AccountType,
+			Disabled:        f.Disabled,
+			Unavailable:     f.Unavailable,
+			RuntimeOnly:     f.RuntimeOnly,
+			Success:         f.Success,
+			Failed:          f.Failed,
+			NextRetryUnix:   nextRetry,
+			LastRefreshUnix: lastRefresh,
+			ProjectID:       f.ProjectID,
 		})
 	}
 	return out, nil

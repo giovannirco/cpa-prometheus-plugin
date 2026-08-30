@@ -11,18 +11,20 @@ import (
 )
 
 type AuthFile struct {
-	AuthIndex     string
-	Provider      string
-	Type          string
-	Status        string
-	Email         string
-	AccountType   string
-	Disabled      bool
-	Unavailable   bool
-	RuntimeOnly   bool
-	Success       int64
-	Failed        int64
-	NextRetryUnix int64
+	AuthIndex       string
+	Provider        string
+	Type            string
+	Status          string
+	Email           string
+	AccountType     string
+	Disabled        bool
+	Unavailable     bool
+	RuntimeOnly     bool
+	Success         int64
+	Failed          int64
+	NextRetryUnix   int64
+	LastRefreshUnix int64
+	ProjectID       string
 }
 
 type HTTPRequest struct {
@@ -86,17 +88,20 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 			models = rt.Models
 		}
 		creds = append(creds, Credential{
-			Provider:      provider,
-			AuthIndex:     file.AuthIndex,
-			Status:        status,
-			Email:         email,
-			AccountType:   accountType,
-			Disabled:      file.Disabled,
-			Unavailable:   file.Unavailable,
-			Success:       file.Success,
-			Failed:        file.Failed,
-			NextRetryUnix: file.NextRetryUnix,
-			Models:        models,
+			Provider:        provider,
+			AuthIndex:       file.AuthIndex,
+			Status:          status,
+			Email:           email,
+			AccountType:     accountType,
+			Disabled:        file.Disabled,
+			Unavailable:     file.Unavailable,
+			RuntimeOnly:     file.RuntimeOnly,
+			Success:         file.Success,
+			Failed:          file.Failed,
+			NextRetryUnix:   file.NextRetryUnix,
+			LastRefreshUnix: file.LastRefreshUnix,
+			ProjectID:       file.ProjectID,
+			Models:          models,
 		})
 		file.Email = email
 		file.AccountType = accountType

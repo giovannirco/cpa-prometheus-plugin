@@ -22,17 +22,20 @@ type Account struct {
 }
 
 type Credential struct {
-	Provider      string
-	AuthIndex     string
-	Status        string
-	Email         string
-	AccountType   string
-	Disabled      bool
-	Unavailable   bool
-	Success       int64
-	Failed        int64
-	NextRetryUnix int64
-	Models        []ModelAvailability
+	Provider        string
+	AuthIndex       string
+	Status          string
+	Email           string
+	AccountType     string
+	Disabled        bool
+	Unavailable     bool
+	RuntimeOnly     bool
+	Success         int64
+	Failed          int64
+	NextRetryUnix   int64
+	LastRefreshUnix int64
+	ProjectID       string
+	Models          []ModelAvailability
 }
 
 type ModelAvailability struct {

@@ -38,6 +38,7 @@ type UsageRecord struct {
 	Provider          string
 	Model             string
 	AuthIndex         string
+	RequestedAt       time.Time
 	Latency           time.Duration
 	Failed            bool
 	FailureStatusCode int
@@ -69,6 +70,10 @@ type Collector struct {
 	authDisabled     *prometheus.GaugeVec
 	authUnavailable  *prometheus.GaugeVec
 	authNextRetry    *prometheus.GaugeVec
+	authRuntimeOnly  *prometheus.GaugeVec
+	authLastRefresh  *prometheus.GaugeVec
+	authProjectInfo  *prometheus.GaugeVec
+	lastRequest      *prometheus.GaugeVec
 	modelSeen        *prometheus.GaugeVec
 	modelAvailable   *prometheus.GaugeVec
 
@@ -196,6 +201,26 @@ func New(version string) *Collector {
 		Help:        "Unix timestamp of host.auth.list next_retry_after when cooling down.",
 		ConstLabels: constLabels,
 	}, []string{"provider", "auth_index", "email"})
+	c.authRuntimeOnly = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_runtime_only",
+		Help:        "1 if host.auth.list reports the credential as runtime-only (no backing auth file).",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email"})
+	c.authLastRefresh = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_last_refresh_timestamp_seconds",
+		Help:        "Unix timestamp of host.auth.list last_refresh when present.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email"})
+	c.authProjectInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_project_info",
+		Help:        "1 if host.auth.list reports a project_id for this credential.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email", "project_id"})
+	c.lastRequest = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_last_request_timestamp_seconds",
+		Help:        "Unix timestamp of the last usage.handle record for this provider, model, and credential.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "model", "auth_index", "email"})
 	c.modelSeen = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_model_seen",
 		Help:        "1 if this model has been observed via usage.handle.",
@@ -212,6 +237,7 @@ func New(version string) *Collector {
 		c.requests, c.failures, c.duration, c.tokens,
 		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaErrors,
 		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
+		c.authRuntimeOnly, c.authLastRefresh, c.authProjectInfo, c.lastRequest,
 	)
 	c.info.WithLabelValues(version).Set(1)
 	c.up.Set(1)
@@ -272,6 +298,11 @@ func (c *Collector) ObserveUsage(rec UsageRecord) {
 	c.mu.Unlock()
 	c.modelsSeen.WithLabelValues(provider).Set(float64(n))
 	c.modelSeen.WithLabelValues(provider, model).Set(1)
+	requested := rec.RequestedAt
+	if requested.IsZero() {
+		requested = time.Now().UTC()
+	}
+	c.lastRequest.WithLabelValues(provider, model, authIndex, email).Set(float64(requested.Unix()))
 }
 
 func (c *Collector) ApplyCredentials(creds []quota.Credential) {
@@ -281,6 +312,9 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 	c.authDisabled.Reset()
 	c.authUnavailable.Reset()
 	c.authNextRetry.Reset()
+	c.authRuntimeOnly.Reset()
+	c.authLastRefresh.Reset()
+	c.authProjectInfo.Reset()
 	c.modelAvailable.Reset()
 	c.mu.Lock()
 	c.emails = map[string]string{}
@@ -311,6 +345,17 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 		c.authUnavailable.WithLabelValues(provider, authIndex, email).Set(unavailable)
 		if cred.NextRetryUnix > 0 {
 			c.authNextRetry.WithLabelValues(provider, authIndex, email).Set(float64(cred.NextRetryUnix))
+		}
+		runtimeOnly := 0.0
+		if cred.RuntimeOnly {
+			runtimeOnly = 1
+		}
+		c.authRuntimeOnly.WithLabelValues(provider, authIndex, email).Set(runtimeOnly)
+		if cred.LastRefreshUnix > 0 {
+			c.authLastRefresh.WithLabelValues(provider, authIndex, email).Set(float64(cred.LastRefreshUnix))
+		}
+		if projectID := labels.ProjectID(cred.ProjectID); projectID != "unknown" && strings.TrimSpace(cred.ProjectID) != "" {
+			c.authProjectInfo.WithLabelValues(provider, authIndex, email, projectID).Set(1)
 		}
 		models = append(models, cred.Models...)
 	}

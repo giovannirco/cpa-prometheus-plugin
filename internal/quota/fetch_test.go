@@ -88,6 +88,7 @@ func TestPollCopiesAuthNumericsOntoCredentials(t *testing.T) {
 		files: []AuthFile{{
 			AuthIndex: "a1", Provider: "xai", Status: "active",
 			Unavailable: true, Success: 12, Failed: 3, NextRetryUnix: 1_800_000_000,
+			RuntimeOnly: false, LastRefreshUnix: 1_700_000_222, ProjectID: "proj-9",
 		}},
 		json: map[string][]byte{"a1": []byte(`{"access_token":"x"}`)},
 		http: func(HTTPRequest) (HTTPResponse, error) {
@@ -100,6 +101,9 @@ func TestPollCopiesAuthNumericsOntoCredentials(t *testing.T) {
 	}
 	if len(creds) != 1 || creds[0].Success != 12 || creds[0].Failed != 3 || !creds[0].Unavailable || creds[0].NextRetryUnix != 1_800_000_000 {
 		t.Fatalf("creds %#v", creds)
+	}
+	if creds[0].LastRefreshUnix != 1_700_000_222 || creds[0].ProjectID != "proj-9" {
+		t.Fatalf("last_refresh/project_id not copied: %#v", creds[0])
 	}
 	if len(accounts) != 1 || !accounts[0].Supported || len(accounts[0].Windows) != 0 {
 		t.Fatalf("PAYG account should be supported with empty windows: %#v", accounts)

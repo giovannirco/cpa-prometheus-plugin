@@ -60,6 +60,47 @@ func TestHostAuthListCopiesEmailNotPath(t *testing.T) {
 	}
 }
 
+func TestHostAuthListCopiesLastRefreshProjectIDRuntimeOnly(t *testing.T) {
+	host := NewCallbackHost(func(method string, request []byte) ([]byte, error) {
+		if method != "host.auth.list" {
+			t.Fatalf("method = %s", method)
+		}
+		return okJSON(map[string]any{
+			"files": []map[string]any{{
+				"auth_index":   "a1",
+				"provider":     "antigravity",
+				"status":       "active",
+				"email":        "gio@example.com",
+				"runtime_only": true,
+				"last_refresh": "2023-11-14T22:15:22Z",
+				"project_id":   "proj-9",
+				"path":         "/root/.cli-proxy-api/secret.json",
+			}},
+		}), nil
+	})
+	files, err := host.ListAuth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files=%d", len(files))
+	}
+	f := files[0]
+	if !f.RuntimeOnly {
+		t.Fatalf("runtime_only not copied: %#v", f)
+	}
+	if f.ProjectID != "proj-9" {
+		t.Fatalf("project_id not copied: %#v", f)
+	}
+	if f.LastRefreshUnix != 1_700_000_122 {
+		t.Fatalf("last_refresh unix=%d want 1700000122: %#v", f.LastRefreshUnix, f)
+	}
+	dump := fmt.Sprintf("%#v", f)
+	if strings.Contains(dump, "/root/.cli-proxy-api") {
+		t.Fatalf("path leaked onto AuthFile: %#v", f)
+	}
+}
+
 func TestHostAuthGetRuntimeDecodesModelStates(t *testing.T) {
 	host := NewCallbackHost(func(method string, request []byte) ([]byte, error) {
 		if method != "host.auth.get_runtime" {

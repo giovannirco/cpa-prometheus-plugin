@@ -10,6 +10,7 @@ const (
 	MaxStatus      = 32
 	MaxEmail       = 128
 	MaxAccountType = 32
+	MaxProjectID   = 64
 )
 
 func Sanitize(value string, max int) string {
@@ -43,6 +44,7 @@ func AuthIndex(value string) string   { return Sanitize(value, MaxAuthIndex) }
 func Window(value string) string      { return Sanitize(value, MaxWindow) }
 func Status(value string) string      { return Sanitize(value, MaxStatus) }
 func AccountType(value string) string { return Sanitize(value, MaxAccountType) }
+func ProjectID(value string) string   { return Sanitize(value, MaxProjectID) }
 
 func Email(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))

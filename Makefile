@@ -1,5 +1,5 @@
 PLUGIN_ID ?= cpa-prometheus
-VERSION ?= 0.1.3
+VERSION ?= 0.1.4
 DIST ?= dist
 
 .PHONY: test build package fmt tidy

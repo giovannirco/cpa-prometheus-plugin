@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -289,6 +290,89 @@ func TestObserveUsageKeepsProviderAndModel(t *testing.T) {
 	}
 }
 
+func TestObserveUsageWritesLastRequestTimestamp(t *testing.T) {
+	c := New("0.1.4")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:  "xai",
+		AuthIndex: "a1",
+		Email:     "gio@example.com",
+		Status:    "active",
+	}})
+	ts := time.Unix(1_700_000_111, 0).UTC()
+	c.ObserveUsage(UsageRecord{
+		Provider:    "xai",
+		Model:       "grok-4.6",
+		AuthIndex:   "a1",
+		RequestedAt: ts,
+		Latency:     time.Millisecond,
+		Detail:      TokenDetail{InputTokens: 1, TotalTokens: 1},
+	})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_last_request_timestamp_seconds") {
+		t.Fatalf("last_request missing:\n%s", text)
+	}
+	if got, ok := metricFloat(text, "cliproxy_last_request_timestamp_seconds"); !ok || got != 1_700_000_111 {
+		t.Fatalf("RequestedAt unix=%v ok=%v:\n%s", got, ok, text)
+	}
+	if !strings.Contains(text, `email="gio@example.com"`) || !strings.Contains(text, `model="grok-4.6"`) {
+		t.Fatalf("identity labels missing on last_request:\n%s", text)
+	}
+}
+
+func TestApplyCredentialsWritesRuntimeOnlyLastRefreshProjectID(t *testing.T) {
+	c := New("0.1.4")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:        "antigravity",
+		AuthIndex:       "a1",
+		Status:          "active",
+		Email:           "gio@example.com",
+		RuntimeOnly:     true,
+		LastRefreshUnix: 1_700_000_222,
+		ProjectID:       "proj-9",
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_auth_runtime_only") {
+		t.Fatalf("runtime_only missing:\n%s", text)
+	}
+	if !gaugeIs(text, "cliproxy_auth_runtime_only", 1) {
+		t.Fatalf("runtime_only != 1:\n%s", text)
+	}
+	if !strings.Contains(text, "cliproxy_auth_last_refresh_timestamp_seconds") {
+		t.Fatalf("last_refresh missing:\n%s", text)
+	}
+	if got, ok := metricFloat(text, "cliproxy_auth_last_refresh_timestamp_seconds"); !ok || got != 1_700_000_222 {
+		t.Fatalf("last_refresh unix=%v ok=%v:\n%s", got, ok, text)
+	}
+	if !strings.Contains(text, "cliproxy_auth_project_info") || !strings.Contains(text, `project_id="proj-9"`) {
+		t.Fatalf("project_info missing:\n%s", text)
+	}
+	if strings.Contains(text, "/root/") || strings.Contains(text, "sk-") {
+		t.Fatalf("secret/path leaked:\n%s", text)
+	}
+}
+
+func TestApplyCredentialsOmitsProjectInfoWhenEmpty(t *testing.T) {
+	c := New("0.1.4")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:  "xai",
+		AuthIndex: "a1",
+		Status:    "active",
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "cliproxy_auth_project_info") {
+		t.Fatalf("project_info should be omitted when empty:\n%s", text)
+	}
+}
+
 func TestApplyModelAvailabilityFromRuntime(t *testing.T) {
 	c := New("0.1.3")
 	c.ApplyModelAvailability([]quota.ModelAvailability{{
@@ -309,6 +393,24 @@ func TestApplyModelAvailabilityFromRuntime(t *testing.T) {
 	if !strings.Contains(text, `model="grok-4.6"`) {
 		t.Fatalf("model label missing:\n%s", text)
 	}
+}
+
+func metricFloat(text, name string) (float64, bool) {
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(line, name+"{") && line != name {
+			continue
+		}
+		i := strings.LastIndex(line, " ")
+		if i < 0 {
+			continue
+		}
+		v, err := strconv.ParseFloat(line[i+1:], 64)
+		if err != nil {
+			continue
+		}
+		return v, true
+	}
+	return 0, false
 }
 
 func gaugeIs(text, name string, want float64) bool {

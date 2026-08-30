@@ -24,7 +24,7 @@ const (
 	metricsManagePath   = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.1.3"
+var PluginVersion = "0.1.4"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -195,6 +195,7 @@ func (rt *Runtime) handleUsage(request []byte) []byte {
 		Provider:          rec.Provider,
 		Model:             rec.Model,
 		AuthIndex:         rec.AuthIndex,
+		RequestedAt:       rec.RequestedAt,
 		Latency:           time.Duration(rec.Latency),
 		Failed:            rec.Failed,
 		FailureStatusCode: rec.Failure.StatusCode,
