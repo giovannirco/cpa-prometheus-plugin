@@ -61,14 +61,21 @@ Quota, default interval 5 minutes:
 | `cliproxy_quota_last_success_timestamp_seconds` | unix |
 | `cliproxy_quota_poll_interval_seconds` | gauge, default 300 |
 | `cliproxy_quota_fetch_errors_total` | counter (`reason`) |
+| `cliproxy_quota_reset_credits` | gauge, Codex banked reset credits (`available_count`). Absent when the provider has no such product. |
+| `cliproxy_quota_reset_credit_expires_timestamp_seconds` | unix of the soonest *available* credit expiry |
 
 Window ids:
 
-- Codex: `five_hour`, `seven_day`
+- Codex: `five_hour`, `seven_day`. Reset credits from `/wham/usage` `rate_limit_reset_credits` plus `GET /wham/rate-limit-reset-credits`.
 - Claude: `five_hour`, `seven_day` when a Claude cred exists
 - Kimi: `five_hour` / `weekly` when a Kimi cred exists
 - Antigravity: `gemini_weekly`, `claude_gpt_weekly` (per-model rows from `fetchAvailableModels` are folded into those two)
-- xAI: `weekly`. `grok_build` only if the billing JSON actually contains it
+- Gemini CLI: per-model buckets from `retrieveUserQuota` when a gemini-cli cred exists
+- xAI: `weekly`. `grok_build` only if the billing JSON actually contains it. xAI has no Codex-style banked reset-credit count in `cli-chat-proxy` billing.
+
+Quota HTTP fetch (used/remaining/reset + supported): Claude, Codex, Antigravity, Gemini CLI, Kimi, xAI. Other CPA providers (Qwen, iFlow, Vertex, API keys, openai-compatibility) still emit **usage** series (`cliproxy_requests_total` / tokens / duration / failures) as soon as `usage.handle` fires; they stay `cliproxy_quota_supported=0` until we have a stable quota URL.
+
+`usage.handle` is not limited to the accounts currently logged in on one homelab. A Claude-only install gets `provider="claude"` on the same metric names.
 
 Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
 
@@ -129,7 +136,7 @@ Build linux/amd64 `c-shared` on GitHub Actions (`release.yml`, ubuntu-latest). Q
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.6 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.1.7 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

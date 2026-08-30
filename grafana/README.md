@@ -27,6 +27,7 @@ Prefix `cliproxy_*`. Every series has `plugin_id="cpa-prometheus"`.
 Rows: Overview, Quota, Accounts, Usage.
 
 - Quota windows (`used` / `remaining` / time-until-reset) with email in legends.
+- Codex banked reset credits (`cliproxy_quota_reset_credits`).
 - Credentials from `host.auth.list` (disabled, unavailable, runtime-only, project_id, last_refresh / updated_at ages).
 - `usage.handle` request rate, tokens by type (excluding `total` / `cached` so they are not double-counted), latency histogram, failures by code.
 - `cliproxy_model_available` stays empty unless CPA `get_runtime` includes `model_states`.

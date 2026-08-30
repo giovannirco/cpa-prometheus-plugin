@@ -176,8 +176,26 @@ func fetchOne(host Host, file AuthFile) Account {
 		return account
 	}
 	account.Windows = ParseWindows(provider, resp.Body)
+	applyResetCredits(&account, provider, resp.Body)
+	if extra, extraErr := resetCreditsRequest(provider, token, raw); extraErr == nil {
+		if extraResp, extraDoErr := host.DoHTTP(extra); extraDoErr == nil && extraResp.StatusCode >= 200 && extraResp.StatusCode < 300 {
+			applyResetCredits(&account, provider, extraResp.Body)
+		}
+	}
 	account.FetchedAt = time.Now().UTC()
 	return account
+}
+
+func applyResetCredits(account *Account, provider string, body []byte) {
+	info, ok := ParseResetCredits(provider, body)
+	if !ok {
+		return
+	}
+	account.ResetCreditsSet = true
+	account.ResetCredits = info.Available
+	if info.ExpiresUnix > 0 {
+		account.ResetCreditExpiresUnix = info.ExpiresUnix
+	}
 }
 
 func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
@@ -221,9 +239,40 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 		headers["x-grok-client-version"] = []string{"0.2.91"}
 		headers["User-Agent"] = []string{"grok-shell/0.2.91"}
 		return quotaHTTPRequest(http.MethodGet, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", headers, nil)
+	case "gemini-cli":
+		headers["Content-Type"] = []string{"application/json"}
+		headers["User-Agent"] = []string{"google-cloud-sdk"}
+		body := []byte(`{}`)
+		if projectID := lookupString(raw, "project_id"); projectID != "" {
+			body, _ = json.Marshal(map[string]any{"projectId": projectID})
+		}
+		return quotaHTTPRequest(http.MethodPost, "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota", headers, body)
 	default:
 		return HTTPRequest{}, fmt.Errorf("unsupported")
 	}
+}
+
+func resetCreditsRequest(provider, token string, raw []byte) (HTTPRequest, error) {
+	if NormalizeProvider(provider) != "codex" {
+		return HTTPRequest{}, fmt.Errorf("unsupported")
+	}
+	headers := map[string][]string{
+		"Authorization": {"Bearer " + token},
+		"Accept":        {"application/json"},
+		"User-Agent":    {"codex_cli_rs/0.76.0 (linux; amd64)"},
+	}
+	accountID := lookupString(raw, "account_id")
+	if accountID == "" {
+		accountID = lookupString(raw, "chatgpt_account_id")
+	}
+	if accountID == "" {
+		accountID = accountIDFromJWT(lookupString(raw, "id_token"))
+	}
+	if accountID == "" {
+		return HTTPRequest{}, fmt.Errorf("credential_incomplete")
+	}
+	headers["Chatgpt-Account-Id"] = []string{accountID}
+	return quotaHTTPRequest(http.MethodGet, "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", headers, nil)
 }
 
 func quotaHTTPRequest(method, rawURL string, headers map[string][]string, body []byte) (HTTPRequest, error) {

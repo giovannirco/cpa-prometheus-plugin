@@ -54,11 +54,58 @@ func NormalizeProvider(provider string) string {
 
 func SupportedProvider(provider string) bool {
 	switch NormalizeProvider(provider) {
-	case "claude", "codex", "antigravity", "kimi", "xai":
+	case "claude", "codex", "antigravity", "kimi", "xai", "gemini-cli":
 		return true
 	default:
 		return false
 	}
+}
+
+func ParseResetCredits(provider string, body []byte) (ResetCreditInfo, bool) {
+	if NormalizeProvider(provider) != "codex" || len(body) == 0 {
+		return ResetCreditInfo{}, false
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ResetCreditInfo{}, false
+	}
+	block, _ := payload["rate_limit_reset_credits"].(map[string]any)
+	if block == nil {
+		if _, ok := payload["available_count"]; ok {
+			block = payload
+		}
+	}
+	if block == nil {
+		return ResetCreditInfo{}, false
+	}
+	if block["available_count"] == nil {
+		return ResetCreditInfo{}, false
+	}
+	info := ResetCreditInfo{Available: int(floatNumber(block["available_count"]))}
+	if info.Available < 0 {
+		info.Available = 0
+	}
+	var earliest int64
+	credits, _ := block["credits"].([]any)
+	for _, raw := range credits {
+		item, _ := raw.(map[string]any)
+		if item == nil {
+			continue
+		}
+		status := strings.ToLower(firstString(item["status"]))
+		if status != "" && status != "available" {
+			continue
+		}
+		exp := unixTime(firstValue(item["expires_at"], item["expiresAt"]))
+		if exp <= 0 {
+			continue
+		}
+		if earliest == 0 || exp < earliest {
+			earliest = exp
+		}
+	}
+	info.ExpiresUnix = earliest
+	return info, true
 }
 
 func parseClaude(payload map[string]any) []Window {

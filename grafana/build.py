@@ -425,11 +425,11 @@ def dashboard() -> dict:
         ),
         stat(
             12,
-            "PAYG / no window",
-            f"count(cliproxy_quota_has_window{{{SEL}}} == 0) or vector(0)",
+            "Reset credits",
+            f"sum(cliproxy_quota_reset_credits{{{SEL}}}) or vector(0)",
             16,
             y1,
-            desc="Credentials with cliproxy_quota_has_window=0 (pay-as-you-go or empty payload).",
+            desc="Banked Codex rate-limit reset credits (available_count). Empty for providers that do not expose this.",
         ),
         stat(
             13,
@@ -527,7 +527,7 @@ def dashboard() -> dict:
             ],
             0,
             qerr_y,
-            w=16,
+            w=8,
             desc="Isolated per provider. Empty while fetches succeed. Does not take CPA down.",
         ),
         timeseries(
@@ -539,7 +539,7 @@ def dashboard() -> dict:
                     legend="{{provider}} {{email}}",
                 )
             ],
-            16,
+            8,
             qerr_y,
             w=8,
             desc="Should stay near the poll interval. Climbing means fetches are failing.",
@@ -547,6 +547,23 @@ def dashboard() -> dict:
             span=QUOTA_SPAN_MS,
             step=True,
             steps=(("green", None), ("yellow", 600), ("red", 1800)),
+        ),
+        timeseries(
+            28,
+            "Banked reset credits",
+            [
+                tgt(
+                    f"cliproxy_quota_reset_credits{{{SEL}}}",
+                    legend="{{provider}} {{email}}",
+                )
+            ],
+            16,
+            qerr_y,
+            w=8,
+            desc="Codex available_count from /wham/usage and /wham/rate-limit-reset-credits. Absent for Grok/Claude/Kimi/Antigravity.",
+            span=QUOTA_SPAN_MS,
+            step=True,
+            min_v=0,
         ),
         row(30, "Accounts", acct_y),
         table(
@@ -564,6 +581,12 @@ def dashboard() -> dict:
                 tgt(f"time() - cliproxy_auth_updated_timestamp_seconds{{{SEL}}}", "I", instant=True),
                 tgt(f"time() - cliproxy_auth_last_refresh_timestamp_seconds{{{SEL}}}", "J", instant=True),
                 tgt(f"cliproxy_auth_project_info{{{SEL}}}", "K", instant=True),
+                tgt(f"cliproxy_quota_reset_credits{{{SEL}}}", "L", instant=True),
+                tgt(
+                    f"cliproxy_quota_reset_credit_expires_timestamp_seconds{{{SEL}}} - time()",
+                    "M",
+                    instant=True,
+                ),
             ],
             [
                 val_override("Value #A", "Count"),
@@ -587,6 +610,8 @@ def dashboard() -> dict:
                 val_override("Value #I", "Updated age", unit="dtdurations"),
                 val_override("Value #J", "Refresh age", unit="dtdurations"),
                 val_override("Value #K", "Has project"),
+                val_override("Value #L", "Reset credits"),
+                val_override("Value #M", "Credit expires", unit="dtdurations"),
             ],
             0,
             cred_y,
@@ -759,7 +784,7 @@ def dashboard() -> dict:
         "editable": True,
         "graphTooltip": 1,
         "schemaVersion": 39,
-        "version": 3,
+        "version": 4,
         "refresh": "30s",
         "fiscalYearStartMonth": 0,
         "liveNow": False,

@@ -161,6 +161,52 @@ func TestApplyQuotaEmitsHasWindowZeroForEmptyWindows(t *testing.T) {
 	}
 }
 
+func TestApplyQuotaEmitsResetCredits(t *testing.T) {
+	c := New("0.1.7")
+	available := 2
+	c.ApplyQuota([]quota.Account{{
+		Provider:               "codex",
+		AuthIndex:              "c1",
+		Email:                  "gio@example.com",
+		Supported:              true,
+		Windows:                []quota.Window{{ID: "five_hour", UsedRatio: 0.1, RemainingRatio: 0.9}},
+		ResetCreditsSet:        true,
+		ResetCredits:           available,
+		ResetCreditExpiresUnix: 1_757_638_800,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_quota_reset_credits") {
+		t.Fatalf("missing reset credits metric:\n%s", text)
+	}
+	if !strings.Contains(text, `cliproxy_quota_reset_credits{auth_index="c1",email="gio@example.com",plugin_id="cpa-prometheus",provider="codex"} 2`) &&
+		!strings.Contains(text, `provider="codex"`) {
+		t.Fatalf("reset credits value missing:\n%s", text)
+	}
+	if !strings.Contains(text, "cliproxy_quota_reset_credit_expires_timestamp_seconds") {
+		t.Fatalf("missing reset credit expiry:\n%s", text)
+	}
+}
+
+func TestApplyQuotaOmitsResetCreditsWhenUnset(t *testing.T) {
+	c := New("0.1.7")
+	c.ApplyQuota([]quota.Account{{
+		Provider:  "xai",
+		AuthIndex: "x1",
+		Supported: true,
+		Windows:   []quota.Window{{ID: "weekly", UsedRatio: 0.2, RemainingRatio: 0.8}},
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "cliproxy_quota_reset_credits") {
+		t.Fatalf("xAI must not emit banked reset credits:\n%s", text)
+	}
+}
+
 func TestApplyQuotaHasWindowOneWhenWindowsPresent(t *testing.T) {
 	c := New("0.1.2")
 	c.ApplyQuota([]quota.Account{{

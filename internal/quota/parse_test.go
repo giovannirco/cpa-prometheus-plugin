@@ -3,6 +3,7 @@ package quota
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestParseClaudeWindows(t *testing.T) {
@@ -157,6 +158,66 @@ func TestParseXAIPayAsYouGoHasNoWindows(t *testing.T) {
 	got := ParseWindows("xai", []byte(`{"config":{}}`))
 	if len(got) != 0 {
 		t.Fatalf("PAYG should not invent windows: %#v", got)
+	}
+}
+
+func TestParseCodexResetCreditsFromUsage(t *testing.T) {
+	body := []byte(`{
+		"rate_limit":{"primary_window":{"used_percent":40,"reset_after":1700000400},"secondary_window":{"used_percent":10,"reset_after":1700000800}},
+		"rate_limit_reset_credits":{"available_count":3,"credits":[
+			{"status":"available","expires_at":"2026-09-12T01:00:00Z"},
+			{"status":"available","expires_at":"2026-09-18T02:00:00Z"},
+			{"status":"redeemed","expires_at":"2026-08-01T00:00:00Z"}
+		]}
+	}`)
+	got := ParseWindows("codex", body)
+	if len(got) != 2 {
+		t.Fatalf("windows %#v", got)
+	}
+	credits, ok := ParseResetCredits("codex", body)
+	if !ok || credits.Available != 3 {
+		t.Fatalf("reset credits = %#v ok=%v, want available 3", credits, ok)
+	}
+	wantExp, err := time.Parse(time.RFC3339, "2026-09-12T01:00:00Z")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credits.ExpiresUnix != wantExp.Unix() {
+		t.Fatalf("earliest available expiry = %d, want %d", credits.ExpiresUnix, wantExp.Unix())
+	}
+}
+
+func TestParseCodexResetCreditsDedicatedBody(t *testing.T) {
+	body := []byte(`{"available_count":1,"credits":[{"status":"available","expires_at":"2026-10-01T00:00:00Z"}]}`)
+	credits, ok := ParseResetCredits("codex", body)
+	if !ok || credits.Available != 1 {
+		t.Fatalf("got %#v ok=%v", credits, ok)
+	}
+}
+
+func TestParseResetCreditsZeroIsPresent(t *testing.T) {
+	body := []byte(`{"rate_limit_reset_credits":{"available_count":0}}`)
+	credits, ok := ParseResetCredits("codex", body)
+	if !ok || credits.Available != 0 {
+		t.Fatalf("zero must still be present: %#v ok=%v", credits, ok)
+	}
+}
+
+func TestParseResetCreditsAbsentForXAI(t *testing.T) {
+	_, ok := ParseResetCredits("xai", []byte(`{"config":{"creditUsagePercent":8}}`))
+	if ok {
+		t.Fatal("xAI billing JSON has no banked reset credits")
+	}
+}
+
+func TestParseGeminiCLIBuckets(t *testing.T) {
+	body := []byte(`{"buckets":[{"modelId":"gemini-2.5-pro","remainingFraction":0.4,"resetTime":"2026-09-01T00:00:00Z"}]}`)
+	got := ParseWindows("gemini-cli", body)
+	if len(got) != 1 || got[0].ID != "gemini-2_5-pro" {
+		t.Fatalf("gemini-cli windows %#v", got)
+	}
+	if math.Abs(got[0].RemainingRatio-0.4) > 1e-9 {
+		t.Fatalf("remaining %#v", got[0])
 	}
 }
 

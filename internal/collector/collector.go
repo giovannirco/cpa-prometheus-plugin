@@ -50,34 +50,36 @@ type Collector struct {
 	reg     *prometheus.Registry
 	version string
 
-	info             *prometheus.GaugeVec
-	up               prometheus.Gauge
-	pollInterval     prometheus.Gauge
-	credentials      *prometheus.GaugeVec
-	modelsSeen       *prometheus.GaugeVec
-	requests         *prometheus.CounterVec
-	failures         *prometheus.CounterVec
-	duration         *prometheus.HistogramVec
-	tokens           *prometheus.CounterVec
-	quotaUsed        *prometheus.GaugeVec
-	quotaRemaining   *prometheus.GaugeVec
-	quotaReset       *prometheus.GaugeVec
-	quotaLastSuccess *prometheus.GaugeVec
-	quotaSupported   *prometheus.GaugeVec
-	quotaHasWindow   *prometheus.GaugeVec
-	quotaErrors      *prometheus.CounterVec
-	authSuccess      *prometheus.GaugeVec
-	authFailed       *prometheus.GaugeVec
-	authDisabled     *prometheus.GaugeVec
-	authUnavailable  *prometheus.GaugeVec
-	authNextRetry    *prometheus.GaugeVec
-	authRuntimeOnly  *prometheus.GaugeVec
-	authLastRefresh  *prometheus.GaugeVec
-	authUpdated      *prometheus.GaugeVec
-	authProjectInfo  *prometheus.GaugeVec
-	lastRequest      *prometheus.GaugeVec
-	modelSeen        *prometheus.GaugeVec
-	modelAvailable   *prometheus.GaugeVec
+	info                   *prometheus.GaugeVec
+	up                     prometheus.Gauge
+	pollInterval           prometheus.Gauge
+	credentials            *prometheus.GaugeVec
+	modelsSeen             *prometheus.GaugeVec
+	requests               *prometheus.CounterVec
+	failures               *prometheus.CounterVec
+	duration               *prometheus.HistogramVec
+	tokens                 *prometheus.CounterVec
+	quotaUsed              *prometheus.GaugeVec
+	quotaRemaining         *prometheus.GaugeVec
+	quotaReset             *prometheus.GaugeVec
+	quotaLastSuccess       *prometheus.GaugeVec
+	quotaSupported         *prometheus.GaugeVec
+	quotaHasWindow         *prometheus.GaugeVec
+	quotaResetCredits      *prometheus.GaugeVec
+	quotaResetCreditExpiry *prometheus.GaugeVec
+	quotaErrors            *prometheus.CounterVec
+	authSuccess            *prometheus.GaugeVec
+	authFailed             *prometheus.GaugeVec
+	authDisabled           *prometheus.GaugeVec
+	authUnavailable        *prometheus.GaugeVec
+	authNextRetry          *prometheus.GaugeVec
+	authRuntimeOnly        *prometheus.GaugeVec
+	authLastRefresh        *prometheus.GaugeVec
+	authUpdated            *prometheus.GaugeVec
+	authProjectInfo        *prometheus.GaugeVec
+	lastRequest            *prometheus.GaugeVec
+	modelSeen              *prometheus.GaugeVec
+	modelAvailable         *prometheus.GaugeVec
 
 	mu          sync.Mutex
 	seenModels  map[string]map[string]struct{}
@@ -178,6 +180,16 @@ func New(version string) *Collector {
 		Help:        "1 if this credential currently exposes a quota window; 0 for pay-as-you-go or empty quota payloads.",
 		ConstLabels: constLabels,
 	}, []string{"provider", "auth_index", "email"})
+	c.quotaResetCredits = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_quota_reset_credits",
+		Help:        "Banked rate-limit reset credits remaining (Codex available_count). Absent when the provider has no such product.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email"})
+	c.quotaResetCreditExpiry = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_quota_reset_credit_expires_timestamp_seconds",
+		Help:        "Unix timestamp when the soonest available reset credit expires.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email"})
 	c.authSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_success",
 		Help:        "Recent successful request count from host.auth.list (not a Prom counter; host snapshot).",
@@ -242,7 +254,7 @@ func New(version string) *Collector {
 	reg.MustRegister(
 		c.info, c.up, c.pollInterval, c.credentials, c.modelsSeen, c.modelSeen, c.modelAvailable,
 		c.requests, c.failures, c.duration, c.tokens,
-		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaErrors,
+		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaResetCredits, c.quotaResetCreditExpiry, c.quotaErrors,
 		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
 		c.authRuntimeOnly, c.authLastRefresh, c.authUpdated, c.authProjectInfo, c.lastRequest,
 	)
@@ -413,6 +425,8 @@ func (c *Collector) ApplyQuota(accounts []quota.Account) {
 	c.quotaLastSuccess.Reset()
 	c.quotaSupported.Reset()
 	c.quotaHasWindow.Reset()
+	c.quotaResetCredits.Reset()
+	c.quotaResetCreditExpiry.Reset()
 	for _, account := range accounts {
 		provider := labels.Provider(account.Provider)
 		authIndex := labels.AuthIndex(account.AuthIndex)
@@ -432,6 +446,12 @@ func (c *Collector) ApplyQuota(accounts []quota.Account) {
 		}
 		if !account.FetchedAt.IsZero() && account.Error == "" {
 			c.quotaLastSuccess.WithLabelValues(provider, authIndex, email).Set(float64(account.FetchedAt.Unix()))
+		}
+		if account.ResetCreditsSet {
+			c.quotaResetCredits.WithLabelValues(provider, authIndex, email).Set(float64(account.ResetCredits))
+			if account.ResetCreditExpiresUnix > 0 {
+				c.quotaResetCreditExpiry.WithLabelValues(provider, authIndex, email).Set(float64(account.ResetCreditExpiresUnix))
+			}
 		}
 		for _, window := range account.Windows {
 			wid := labels.Window(window.ID)

@@ -10,15 +10,23 @@ type Window struct {
 }
 
 type Account struct {
-	Provider    string
-	AuthIndex   string
-	Status      string
-	Email       string
-	AccountType string
-	Supported   bool
-	Windows     []Window
-	FetchedAt   time.Time
-	Error       string
+	Provider               string
+	AuthIndex              string
+	Status                 string
+	Email                  string
+	AccountType            string
+	Supported              bool
+	Windows                []Window
+	FetchedAt              time.Time
+	Error                  string
+	ResetCreditsSet        bool
+	ResetCredits           int
+	ResetCreditExpiresUnix int64
+}
+
+type ResetCreditInfo struct {
+	Available   int
+	ExpiresUnix int64
 }
 
 type Credential struct {

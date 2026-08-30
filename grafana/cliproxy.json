@@ -13,7 +13,7 @@
   "editable": true,
   "graphTooltip": 1,
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "30s",
   "fiscalYearStartMonth": 0,
   "liveNow": false,
@@ -795,8 +795,8 @@
     {
       "id": 12,
       "type": "stat",
-      "title": "PAYG / no window",
-      "description": "Credentials with cliproxy_quota_has_window=0 (pay-as-you-go or empty payload).",
+      "title": "Reset credits",
+      "description": "Banked Codex rate-limit reset credits (available_count). Empty for providers that do not expose this.",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -813,9 +813,9 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count(cliproxy_quota_has_window{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"} == 0) or vector(0)",
+          "expr": "sum(cliproxy_quota_reset_credits{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"}) or vector(0)",
           "refId": "A",
-          "legendFormat": "PAYG / no window"
+          "legendFormat": "Reset credits"
         }
       ],
       "fieldConfig": {
@@ -1499,7 +1499,7 @@
       "description": "Isolated per provider. Empty while fetches succeed. Does not take CPA down.",
       "gridPos": {
         "h": 8,
-        "w": 16,
+        "w": 8,
         "x": 0,
         "y": 36
       },
@@ -1591,7 +1591,7 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 16,
+        "x": 8,
         "y": 36
       },
       "datasource": {
@@ -1663,6 +1663,98 @@
             ]
           },
           "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Banked reset credits",
+      "description": "Codex available_count from /wham/usage and /wham/rate-limit-reset-credits. Absent for Grok/Claude/Kimi/Antigravity.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 36
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "cliproxy_quota_reset_credits{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"}",
+          "refId": "A",
+          "legendFormat": "{{provider}} {{email}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": 660000,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
         },
         "overrides": []
       },
@@ -1828,6 +1920,28 @@
           },
           "expr": "cliproxy_auth_project_info{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"}",
           "refId": "K",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "cliproxy_quota_reset_credits{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"}",
+          "refId": "L",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "cliproxy_quota_reset_credit_expires_timestamp_seconds{plugin_id=\"cpa-prometheus\",provider=~\"${provider:regex}\",email=~\"${email:regex}\"} - time()",
+          "refId": "M",
           "legendFormat": "",
           "instant": true,
           "format": "table"
@@ -2041,6 +2155,34 @@
               {
                 "id": "displayName",
                 "value": "Has project"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #L"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Reset credits"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #M"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Credit expires"
+              },
+              {
+                "id": "unit",
+                "value": "dtdurations"
               }
             ]
           }

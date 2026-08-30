@@ -138,7 +138,7 @@ func TestPollSkipsDisabledUnlessConfigured(t *testing.T) {
 
 func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
 	raw := []byte(`{"access_token":"tok","account_id":"acct","project_id":"proj"}`)
-	for _, provider := range []string{"claude", "codex", "antigravity", "kimi", "xai"} {
+	for _, provider := range []string{"claude", "codex", "antigravity", "kimi", "xai", "gemini-cli"} {
 		req, err := providerRequest(provider, "tok", raw)
 		if err != nil {
 			t.Fatalf("%s: %v", provider, err)
@@ -161,6 +161,55 @@ func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
 	}
 	if err := checkQuotaURL("https://user:pass@api.anthropic.com/api/oauth/usage"); err == nil {
 		t.Fatal("userinfo must be rejected")
+	}
+}
+
+func TestPollCodexReadsResetCreditsFromUsage(t *testing.T) {
+	host := &fakeHost{
+		files: []AuthFile{{AuthIndex: "c1", Provider: "codex", Status: "active"}},
+		json:  map[string][]byte{"c1": []byte(`{"access_token":"tok","account_id":"acct"}`)},
+		http: func(req HTTPRequest) (HTTPResponse, error) {
+			if strings.Contains(req.URL, "rate-limit-reset-credits") {
+				return HTTPResponse{StatusCode: 200, Body: []byte(`{"available_count":2,"credits":[{"status":"available","expires_at":"2026-09-12T01:00:00Z"}]}`)}, nil
+			}
+			if strings.Contains(req.URL, "wham/usage") {
+				return HTTPResponse{StatusCode: 200, Body: []byte(`{"rate_limit":{"primary_window":{"used_percent":10,"reset_after":1700000400},"secondary_window":{"used_percent":5,"reset_after":1700000800}},"rate_limit_reset_credits":{"available_count":2}}`)}, nil
+			}
+			return HTTPResponse{StatusCode: 500, Body: []byte("unexpected " + req.URL)}, nil
+		},
+	}
+	accounts, _, err := Poll(host, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 1 {
+		t.Fatalf("%#v", accounts)
+	}
+	if !accounts[0].ResetCreditsSet || accounts[0].ResetCredits != 2 {
+		t.Fatalf("reset credits %#v", accounts[0])
+	}
+	if len(accounts[0].Windows) != 2 {
+		t.Fatalf("windows %#v", accounts[0].Windows)
+	}
+}
+
+func TestPollGeminiCLIIsSupported(t *testing.T) {
+	host := &fakeHost{
+		files: []AuthFile{{AuthIndex: "g1", Provider: "gemini-cli", Status: "active"}},
+		json:  map[string][]byte{"g1": []byte(`{"access_token":"tok","project_id":"proj"}`)},
+		http: func(req HTTPRequest) (HTTPResponse, error) {
+			if !strings.Contains(req.URL, "retrieveUserQuota") && !strings.Contains(req.URL, "cloudcode-pa.googleapis.com") {
+				return HTTPResponse{StatusCode: 500, Body: []byte("bad url " + req.URL)}, nil
+			}
+			return HTTPResponse{StatusCode: 200, Body: []byte(`{"buckets":[{"modelId":"gemini-2.5-pro","remainingFraction":0.5,"resetTime":"2026-09-01T00:00:00Z"}]}`)}, nil
+		},
+	}
+	accounts, _, err := Poll(host, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 1 || !accounts[0].Supported || len(accounts[0].Windows) == 0 {
+		t.Fatalf("gemini-cli %#v", accounts)
 	}
 }
 
