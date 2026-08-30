@@ -74,6 +74,18 @@ Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `ema
 
 Per-account fetch failures increment the error counter and leave the last good gauges. They do not take down CPA.
 
+## Grafana
+
+Dashboard JSON: [`grafana/cliproxy.json`](grafana/cliproxy.json). UID `cliproxy-quota`. Import it and pick a Prometheus datasource (variable defaults to uid `mimir`).
+
+Provider and Email variables default to All (`allValue=.*`). Multi-select queries use `${var:regex}`.
+
+```bash
+python3 grafana/build.py
+```
+
+See [`grafana/README.md`](grafana/README.md).
+
 ## Install
 
 Third-party Plugin Store source (the official registry stays):
