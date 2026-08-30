@@ -69,9 +69,12 @@ type Collector struct {
 	authDisabled     *prometheus.GaugeVec
 	authUnavailable  *prometheus.GaugeVec
 	authNextRetry    *prometheus.GaugeVec
+	modelSeen        *prometheus.GaugeVec
+	modelAvailable   *prometheus.GaugeVec
 
 	mu          sync.Mutex
 	seenModels  map[string]map[string]struct{}
+	emails      map[string]string
 	scrapeToken string
 }
 
@@ -84,6 +87,7 @@ func New(version string) *Collector {
 		reg:        reg,
 		version:    version,
 		seenModels: map[string]map[string]struct{}{},
+		emails:     map[string]string{},
 	}
 	constLabels := prometheus.Labels{"plugin_id": pluginID}
 	c.info = prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -103,9 +107,9 @@ func New(version string) *Collector {
 	})
 	c.credentials = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_credentials",
-		Help:        "Credential count by provider and runtime status (from host.auth.list).",
+		Help:        "Credential count by provider, status, and email (from host.auth.list).",
 		ConstLabels: constLabels,
-	}, []string{"provider", "status"})
+	}, []string{"provider", "status", "email", "account_type"})
 	c.modelsSeen = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_models_seen",
 		Help:        "Unique models observed via usage.handle.",
@@ -115,48 +119,48 @@ func New(version string) *Collector {
 		Name:        "cliproxy_requests_total",
 		Help:        "Completed proxy requests observed by usage.handle.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "model"})
+	}, []string{"provider", "model", "auth_index", "email"})
 	c.failures = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name:        "cliproxy_failures_total",
 		Help:        "Failed proxy requests observed by usage.handle.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "model", "code"})
+	}, []string{"provider", "model", "auth_index", "email", "code"})
 	c.duration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:        "cliproxy_request_duration_seconds",
 		Help:        "Proxy request latency from usage.handle.",
 		ConstLabels: constLabels,
 		Buckets:     prometheus.DefBuckets,
-	}, []string{"provider", "model"})
+	}, []string{"provider", "model", "auth_index", "email"})
 	c.tokens = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name:        "cliproxy_tokens_total",
 		Help:        "Token counts from usage.handle Detail fields.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "model", "type"})
+	}, []string{"provider", "model", "auth_index", "email", "type"})
 	c.quotaUsed = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_quota_used_ratio",
 		Help:        "Provider quota used ratio (0-1) per account window.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index", "window"})
+	}, []string{"provider", "auth_index", "email", "window"})
 	c.quotaRemaining = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_quota_remaining_ratio",
 		Help:        "Provider quota remaining ratio (0-1) per account window.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index", "window"})
+	}, []string{"provider", "auth_index", "email", "window"})
 	c.quotaReset = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_quota_reset_timestamp_seconds",
 		Help:        "Unix timestamp when a quota window resets.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index", "window"})
+	}, []string{"provider", "auth_index", "email", "window"})
 	c.quotaLastSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_quota_last_success_timestamp_seconds",
 		Help:        "Unix timestamp of the last successful quota fetch for an account.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.quotaSupported = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_quota_supported",
 		Help:        "1 if the plugin knows how to fetch quota for this credential.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.quotaErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name:        "cliproxy_quota_fetch_errors_total",
 		Help:        "Quota fetch errors isolated per provider.",
@@ -166,35 +170,45 @@ func New(version string) *Collector {
 		Name:        "cliproxy_quota_has_window",
 		Help:        "1 if this credential currently exposes a quota window; 0 for pay-as-you-go or empty quota payloads.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.authSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_success",
 		Help:        "Recent successful request count from host.auth.list (not a Prom counter; host snapshot).",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.authFailed = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_failed",
 		Help:        "Recent failed request count from host.auth.list (not a Prom counter; host snapshot).",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.authDisabled = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_disabled",
 		Help:        "1 if host.auth.list reports the credential as disabled.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.authUnavailable = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_unavailable",
 		Help:        "1 if host.auth.list reports the credential as unavailable.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
 	c.authNextRetry = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name:        "cliproxy_auth_next_retry_timestamp_seconds",
 		Help:        "Unix timestamp of host.auth.list next_retry_after when cooling down.",
 		ConstLabels: constLabels,
-	}, []string{"provider", "auth_index"})
+	}, []string{"provider", "auth_index", "email"})
+	c.modelSeen = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_model_seen",
+		Help:        "1 if this model has been observed via usage.handle.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "model"})
+	c.modelAvailable = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_model_available",
+		Help:        "1 if host.auth.get_runtime reports this model for the credential (0 if unavailable).",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index", "email", "model", "status"})
 
 	reg.MustRegister(
-		c.info, c.up, c.pollInterval, c.credentials, c.modelsSeen,
+		c.info, c.up, c.pollInterval, c.credentials, c.modelsSeen, c.modelSeen, c.modelAvailable,
 		c.requests, c.failures, c.duration, c.tokens,
 		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaErrors,
 		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
@@ -221,9 +235,11 @@ func (c *Collector) SetPollInterval(d time.Duration) {
 func (c *Collector) ObserveUsage(rec UsageRecord) {
 	provider := labels.Provider(rec.Provider)
 	model := labels.Model(rec.Model)
-	c.requests.WithLabelValues(provider, model).Inc()
+	authIndex := labels.AuthIndex(rec.AuthIndex)
+	email := c.emailFor(authIndex)
+	c.requests.WithLabelValues(provider, model, authIndex, email).Inc()
 	if rec.Latency > 0 {
-		c.duration.WithLabelValues(provider, model).Observe(rec.Latency.Seconds())
+		c.duration.WithLabelValues(provider, model, authIndex, email).Observe(rec.Latency.Seconds())
 	}
 	failed := rec.Failed || rec.FailureStatusCode >= 400
 	if failed {
@@ -231,13 +247,13 @@ func (c *Collector) ObserveUsage(rec UsageRecord) {
 		if rec.FailureStatusCode > 0 {
 			code = strconv.Itoa(rec.FailureStatusCode)
 		}
-		c.failures.WithLabelValues(provider, model, code).Inc()
+		c.failures.WithLabelValues(provider, model, authIndex, email, code).Inc()
 	}
 	add := func(kind string, n int64) {
 		if n == 0 {
 			return
 		}
-		c.tokens.WithLabelValues(provider, model, kind).Add(float64(n))
+		c.tokens.WithLabelValues(provider, model, authIndex, email, kind).Add(float64(n))
 	}
 	add("input", rec.Detail.InputTokens)
 	add("output", rec.Detail.OutputTokens)
@@ -255,6 +271,7 @@ func (c *Collector) ObserveUsage(rec UsageRecord) {
 	n := len(c.seenModels[provider])
 	c.mu.Unlock()
 	c.modelsSeen.WithLabelValues(provider).Set(float64(n))
+	c.modelSeen.WithLabelValues(provider, model).Set(1)
 }
 
 func (c *Collector) ApplyCredentials(creds []quota.Credential) {
@@ -264,14 +281,24 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 	c.authDisabled.Reset()
 	c.authUnavailable.Reset()
 	c.authNextRetry.Reset()
-	counts := map[[2]string]int{}
+	c.modelAvailable.Reset()
+	c.mu.Lock()
+	c.emails = map[string]string{}
+	c.mu.Unlock()
+	counts := map[[4]string]int{}
+	var models []quota.ModelAvailability
 	for _, cred := range creds {
 		provider := labels.Provider(cred.Provider)
 		status := labels.Status(cred.Status)
-		counts[[2]string{provider, status}]++
 		authIndex := labels.AuthIndex(cred.AuthIndex)
-		c.authSuccess.WithLabelValues(provider, authIndex).Set(float64(cred.Success))
-		c.authFailed.WithLabelValues(provider, authIndex).Set(float64(cred.Failed))
+		email := labels.Email(cred.Email)
+		accountType := labels.AccountType(cred.AccountType)
+		c.mu.Lock()
+		c.emails[authIndex] = email
+		c.mu.Unlock()
+		counts[[4]string{provider, status, email, accountType}]++
+		c.authSuccess.WithLabelValues(provider, authIndex, email).Set(float64(cred.Success))
+		c.authFailed.WithLabelValues(provider, authIndex, email).Set(float64(cred.Failed))
 		disabled := 0.0
 		if cred.Disabled {
 			disabled = 1
@@ -280,14 +307,46 @@ func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 		if cred.Unavailable {
 			unavailable = 1
 		}
-		c.authDisabled.WithLabelValues(provider, authIndex).Set(disabled)
-		c.authUnavailable.WithLabelValues(provider, authIndex).Set(unavailable)
+		c.authDisabled.WithLabelValues(provider, authIndex, email).Set(disabled)
+		c.authUnavailable.WithLabelValues(provider, authIndex, email).Set(unavailable)
 		if cred.NextRetryUnix > 0 {
-			c.authNextRetry.WithLabelValues(provider, authIndex).Set(float64(cred.NextRetryUnix))
+			c.authNextRetry.WithLabelValues(provider, authIndex, email).Set(float64(cred.NextRetryUnix))
 		}
+		models = append(models, cred.Models...)
 	}
 	for key, n := range counts {
-		c.credentials.WithLabelValues(key[0], key[1]).Set(float64(n))
+		c.credentials.WithLabelValues(key[0], key[1], key[2], key[3]).Set(float64(n))
+	}
+	if len(models) > 0 {
+		c.ApplyModelAvailability(models)
+	}
+}
+
+func (c *Collector) emailFor(authIndex string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if email, ok := c.emails[authIndex]; ok && email != "" {
+		return email
+	}
+	return "unknown"
+}
+
+func (c *Collector) ApplyModelAvailability(models []quota.ModelAvailability) {
+	c.modelAvailable.Reset()
+	for _, m := range models {
+		provider := labels.Provider(m.Provider)
+		authIndex := labels.AuthIndex(m.AuthIndex)
+		email := labels.Email(m.Email)
+		model := labels.Model(m.Model)
+		status := labels.Status(m.Status)
+		value := 1.0
+		if m.Unavailable {
+			value = 0
+			if status == "unknown" || status == "" {
+				status = "unavailable"
+			}
+		}
+		c.modelAvailable.WithLabelValues(provider, authIndex, email, model, status).Set(value)
 	}
 }
 
@@ -301,28 +360,29 @@ func (c *Collector) ApplyQuota(accounts []quota.Account) {
 	for _, account := range accounts {
 		provider := labels.Provider(account.Provider)
 		authIndex := labels.AuthIndex(account.AuthIndex)
+		email := labels.Email(account.Email)
 		supported := 0.0
 		if account.Supported {
 			supported = 1
 		}
-		c.quotaSupported.WithLabelValues(provider, authIndex).Set(supported)
+		c.quotaSupported.WithLabelValues(provider, authIndex, email).Set(supported)
 		hasWindow := 0.0
 		if len(account.Windows) > 0 {
 			hasWindow = 1
 		}
-		c.quotaHasWindow.WithLabelValues(provider, authIndex).Set(hasWindow)
+		c.quotaHasWindow.WithLabelValues(provider, authIndex, email).Set(hasWindow)
 		if account.Error != "" {
 			c.quotaErrors.WithLabelValues(provider, reasonLabel(account.Error)).Inc()
 		}
 		if !account.FetchedAt.IsZero() && account.Error == "" {
-			c.quotaLastSuccess.WithLabelValues(provider, authIndex).Set(float64(account.FetchedAt.Unix()))
+			c.quotaLastSuccess.WithLabelValues(provider, authIndex, email).Set(float64(account.FetchedAt.Unix()))
 		}
 		for _, window := range account.Windows {
 			wid := labels.Window(window.ID)
-			c.quotaUsed.WithLabelValues(provider, authIndex, wid).Set(clampRatio(window.UsedRatio))
-			c.quotaRemaining.WithLabelValues(provider, authIndex, wid).Set(clampRatio(window.RemainingRatio))
+			c.quotaUsed.WithLabelValues(provider, authIndex, email, wid).Set(clampRatio(window.UsedRatio))
+			c.quotaRemaining.WithLabelValues(provider, authIndex, email, wid).Set(clampRatio(window.RemainingRatio))
 			if window.ResetUnix > 0 {
-				c.quotaReset.WithLabelValues(provider, authIndex, wid).Set(float64(window.ResetUnix))
+				c.quotaReset.WithLabelValues(provider, authIndex, email, wid).Set(float64(window.ResetUnix))
 			}
 		}
 	}

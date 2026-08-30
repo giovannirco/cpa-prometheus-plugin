@@ -16,7 +16,7 @@ type cpaHTTPResponse struct {
 	Body       []byte
 }
 
-func TestHostAuthListDecodesNumericsAndDropsEmail(t *testing.T) {
+func TestHostAuthListCopiesEmailNotPath(t *testing.T) {
 	host := NewCallbackHost(func(method string, request []byte) ([]byte, error) {
 		if method != "host.auth.list" {
 			t.Fatalf("method = %s", method)
@@ -51,8 +51,40 @@ func TestHostAuthListDecodesNumericsAndDropsEmail(t *testing.T) {
 	if f.NextRetryUnix == 0 {
 		t.Fatalf("next_retry_after not decoded: %#v", f)
 	}
-	if strings.Contains(f.AuthIndex, "@") || strings.Contains(fmt.Sprintf("%#v", f), "gio@example.com") {
-		t.Fatalf("email must not be copied onto AuthFile: %#v", f)
+	if f.Email != "gio@example.com" {
+		t.Fatalf("email not copied: %#v", f)
+	}
+	dump := fmt.Sprintf("%#v", f)
+	if strings.Contains(dump, "/root/.cli-proxy-api") || strings.Contains(f.AuthIndex, "@") {
+		t.Fatalf("path leaked onto AuthFile: %#v", f)
+	}
+}
+
+func TestHostAuthGetRuntimeDecodesModelStates(t *testing.T) {
+	host := NewCallbackHost(func(method string, request []byte) ([]byte, error) {
+		if method != "host.auth.get_runtime" {
+			t.Fatalf("method = %s", method)
+		}
+		return okJSON(map[string]any{
+			"auth": map[string]any{
+				"provider":     "xai",
+				"email":        "gio@example.com",
+				"account_type": "oauth",
+				"model_states": map[string]any{
+					"grok-4.6": map[string]any{"status": "active", "unavailable": false},
+				},
+			},
+		}), nil
+	})
+	rt, err := host.GetRuntime("a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rt.Email != "gio@example.com" || rt.AccountType != "oauth" {
+		t.Fatalf("runtime %#v", rt)
+	}
+	if len(rt.Models) != 1 || rt.Models[0].Model != "grok-4.6" {
+		t.Fatalf("models %#v", rt.Models)
 	}
 }
 
@@ -109,6 +141,13 @@ func TestPollThroughCallbackHostWritesQuotaGauges(t *testing.T) {
 			}), nil
 		case "host.http.do":
 			return okJSON(json.RawMessage(httpResult)), nil
+		case "host.auth.get_runtime":
+			return okJSON(map[string]any{"auth": map[string]any{
+				"auth_index":   "a1",
+				"provider":     "claude",
+				"email":        "gio@example.com",
+				"account_type": "oauth",
+			}}), nil
 		default:
 			t.Fatalf("unexpected host method %s", method)
 			return nil, nil

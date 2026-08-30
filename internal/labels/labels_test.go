@@ -15,6 +15,16 @@ func TestSanitizeDropsPIIShapedValuesAndUnknownEmpty(t *testing.T) {
 	}
 }
 
+func TestEmailKeepsAtSign(t *testing.T) {
+	got := Email("Gio@Example.com")
+	if got != "gio@example.com" {
+		t.Fatalf("got %q", got)
+	}
+	if Email("") != "unknown" {
+		t.Fatalf("empty email should be unknown")
+	}
+}
+
 func TestSanitizeTruncates(t *testing.T) {
 	got := Sanitize("abcdefghij", 4)
 	if got != "abcd" {

@@ -77,10 +77,13 @@ func TestObserveUsageDoesNotLabelAPIKeyOrEmail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, banned := range []string{"api_key", "apikey", "email", "cookie", "authorization"} {
+	for _, banned := range []string{"api_key", "apikey", "cookie", "authorization"} {
 		if strings.Contains(strings.ToLower(text), banned+"=") {
 			t.Fatalf("banned label %q in text:\n%s", banned, text)
 		}
+	}
+	if strings.Contains(text, "@") {
+		t.Fatalf("invented email on usage without credentials:\n%s", text)
 	}
 }
 
@@ -210,8 +213,101 @@ func TestApplyCredentialsWritesAuthNumericsWithoutPII(t *testing.T) {
 	if !strings.Contains(text, "12") || !strings.Contains(text, "3") {
 		t.Fatalf("success/failed counts missing:\n%s", text)
 	}
-	if strings.Contains(text, "@") || strings.Contains(strings.ToLower(text), "email=") || strings.Contains(text, "sk-") {
-		t.Fatalf("PII in exposition:\n%s", text)
+	if strings.Contains(text, "sk-") || strings.Contains(text, "/root/") {
+		t.Fatalf("secret/path in exposition:\n%s", text)
+	}
+}
+
+func TestApplyCredentialsWritesEmailLabel(t *testing.T) {
+	c := New("0.1.3")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:    "xai",
+		AuthIndex:   "a1",
+		Status:      "active",
+		Email:       "gio@example.com",
+		AccountType: "oauth",
+		Success:     4,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, `email="gio@example.com"`) {
+		t.Fatalf("email label missing:\n%s", text)
+	}
+	if !strings.Contains(text, `account_type="oauth"`) {
+		t.Fatalf("account_type label missing:\n%s", text)
+	}
+	if strings.Contains(text, "sk-") || strings.Contains(text, "/root/") {
+		t.Fatalf("secret/path leaked:\n%s", text)
+	}
+}
+
+func TestApplyCredentialsUnknownEmailWhenMissing(t *testing.T) {
+	c := New("0.1.3")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:  "codex",
+		AuthIndex: "c1",
+		Status:    "active",
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, "@") {
+		t.Fatalf("invented email:\n%s", text)
+	}
+	if !strings.Contains(text, `email="unknown"`) {
+		t.Fatalf("missing unknown email:\n%s", text)
+	}
+}
+
+func TestObserveUsageKeepsProviderAndModel(t *testing.T) {
+	c := New("0.1.3")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:  "xai",
+		AuthIndex: "a1",
+		Email:     "gio@example.com",
+		Status:    "active",
+	}})
+	c.ObserveUsage(UsageRecord{
+		Provider:  "xai",
+		Model:     "grok-4.6",
+		AuthIndex: "a1",
+		Latency:   time.Millisecond,
+		Detail:    TokenDetail{InputTokens: 2, OutputTokens: 3, TotalTokens: 5},
+	})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_requests_total") || !strings.Contains(text, `model="grok-4.6"`) {
+		t.Fatalf("per-model usage missing:\n%s", text)
+	}
+	if !strings.Contains(text, "cliproxy_model_seen") || !strings.Contains(text, `model="grok-4.6"`) {
+		t.Fatalf("model_seen missing:\n%s", text)
+	}
+}
+
+func TestApplyModelAvailabilityFromRuntime(t *testing.T) {
+	c := New("0.1.3")
+	c.ApplyModelAvailability([]quota.ModelAvailability{{
+		Provider:    "xai",
+		AuthIndex:   "a1",
+		Email:       "gio@example.com",
+		Model:       "grok-4.6",
+		Status:      "active",
+		Unavailable: false,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_model_available") {
+		t.Fatalf("model_available missing:\n%s", text)
+	}
+	if !strings.Contains(text, `model="grok-4.6"`) {
+		t.Fatalf("model label missing:\n%s", text)
 	}
 }
 

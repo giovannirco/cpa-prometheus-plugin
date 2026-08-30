@@ -23,19 +23,27 @@ type hostAuthListResponse struct {
 }
 
 type hostAuthFile struct {
-	AuthIndex      string    `json:"auth_index"`
-	Provider       string    `json:"provider"`
-	Type           string    `json:"type"`
+	AuthIndex      string                    `json:"auth_index"`
+	Provider       string                    `json:"provider"`
+	Type           string                    `json:"type"`
+	Status         string                    `json:"status"`
+	Disabled       bool                      `json:"disabled"`
+	Unavailable    bool                      `json:"unavailable"`
+	RuntimeOnly    bool                      `json:"runtime_only"`
+	Success        int64                     `json:"success"`
+	Failed         int64                     `json:"failed"`
+	NextRetryAfter time.Time                 `json:"next_retry_after"`
+	Email          string                    `json:"email"`
+	AccountType    string                    `json:"account_type"`
+	Name           string                    `json:"name"`
+	Path           string                    `json:"path"`
+	ModelStates    map[string]hostModelState `json:"model_states"`
+}
+
+type hostModelState struct {
 	Status         string    `json:"status"`
-	Disabled       bool      `json:"disabled"`
 	Unavailable    bool      `json:"unavailable"`
-	RuntimeOnly    bool      `json:"runtime_only"`
-	Success        int64     `json:"success"`
-	Failed         int64     `json:"failed"`
 	NextRetryAfter time.Time `json:"next_retry_after"`
-	Email          string    `json:"email"`
-	Name           string    `json:"name"`
-	Path           string    `json:"path"`
 }
 
 type hostAuthGetRequest struct {
@@ -70,7 +78,6 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 	}
 	out := make([]quota.AuthFile, 0, len(resp.Files))
 	for _, f := range resp.Files {
-		_ = f.Email
 		_ = f.Name
 		_ = f.Path
 		nextRetry := int64(0)
@@ -82,12 +89,52 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 			Provider:      f.Provider,
 			Type:          f.Type,
 			Status:        f.Status,
+			Email:         f.Email,
+			AccountType:   f.AccountType,
 			Disabled:      f.Disabled,
 			Unavailable:   f.Unavailable,
 			RuntimeOnly:   f.RuntimeOnly,
 			Success:       f.Success,
 			Failed:        f.Failed,
 			NextRetryUnix: nextRetry,
+		})
+	}
+	return out, nil
+}
+
+func (h callbackHost) GetRuntime(authIndex string) (quota.RuntimeAuth, error) {
+	result, err := h.invoke("host.auth.get_runtime", hostAuthGetRequest{AuthIndex: authIndex})
+	if err != nil {
+		return quota.RuntimeAuth{}, nil
+	}
+	var wrap struct {
+		Auth hostAuthFile `json:"auth"`
+	}
+	if err := json.Unmarshal(result, &wrap); err != nil {
+		var direct hostAuthFile
+		if err2 := json.Unmarshal(result, &direct); err2 != nil {
+			return quota.RuntimeAuth{}, nil
+		}
+		wrap.Auth = direct
+	}
+	_ = wrap.Auth.Name
+	_ = wrap.Auth.Path
+	out := quota.RuntimeAuth{Email: wrap.Auth.Email, AccountType: wrap.Auth.AccountType}
+	for model, st := range wrap.Auth.ModelStates {
+		status := st.Status
+		if st.Unavailable {
+			status = "unavailable"
+		}
+		if status == "" {
+			status = "active"
+		}
+		out.Models = append(out.Models, quota.ModelAvailability{
+			Provider:    wrap.Auth.Provider,
+			AuthIndex:   authIndex,
+			Email:       wrap.Auth.Email,
+			Model:       model,
+			Status:      status,
+			Unavailable: st.Unavailable,
 		})
 	}
 	return out, nil

@@ -27,14 +27,15 @@ From each completed proxy request (`usage.handle`):
 | `cliproxy_request_duration_seconds` | histogram |
 | `cliproxy_tokens_total` | counter (`type` = input, output, reasoning, cached, cache_read, cache_creation, total) |
 | `cliproxy_models_seen` | gauge of distinct models seen so far |
+| `cliproxy_model_seen` | 1 per `provider`,`model` once observed |
 
-CPA does not give plugins a model catalog. You only see models that actually went through the proxy.
+CPA has no host model-list callback. `cliproxy_model_available` is emitted only when `host.auth.get_runtime` includes `model_states`.
 
 From `host.auth.list`, refreshed on the quota tick:
 
 | Name | Type |
 |------|------|
-| `cliproxy_credentials` | gauge by `provider`, `status` |
+| `cliproxy_credentials` | gauge by `provider`, `status`, `email`, `account_type` |
 | `cliproxy_auth_success` | gauge, host snapshot (not a Prom counter) |
 | `cliproxy_auth_failed` | gauge, same |
 | `cliproxy_auth_disabled` | 0/1 |
@@ -62,7 +63,7 @@ Window ids:
 - Antigravity: `gemini_weekly`, `claude_gpt_weekly` (per-model rows from `fetchAvailableModels` are folded into those two)
 - xAI: `weekly`. `grok_build` only if the billing JSON actually contains it
 
-Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`. Emails, tokens, cookies, file paths, and raw API keys are dropped.
+Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
 
 Per-account fetch failures increment the error counter and leave the last good gauges. They do not take down CPA.
 

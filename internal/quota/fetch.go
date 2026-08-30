@@ -15,6 +15,8 @@ type AuthFile struct {
 	Provider      string
 	Type          string
 	Status        string
+	Email         string
+	AccountType   string
 	Disabled      bool
 	Unavailable   bool
 	RuntimeOnly   bool
@@ -38,6 +40,7 @@ type HTTPResponse struct {
 type Host interface {
 	ListAuth() ([]AuthFile, error)
 	GetAuthJSON(authIndex string) ([]byte, error)
+	GetRuntime(authIndex string) (RuntimeAuth, error)
 	DoHTTP(HTTPRequest) (HTTPResponse, error)
 }
 
@@ -70,16 +73,33 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 			status = "active"
 		}
 		provider := NormalizeProvider(firstNonEmpty(file.Provider, file.Type))
+		email := file.Email
+		accountType := file.AccountType
+		var models []ModelAvailability
+		if rt, err := host.GetRuntime(file.AuthIndex); err == nil {
+			if email == "" {
+				email = rt.Email
+			}
+			if accountType == "" {
+				accountType = rt.AccountType
+			}
+			models = rt.Models
+		}
 		creds = append(creds, Credential{
 			Provider:      provider,
 			AuthIndex:     file.AuthIndex,
 			Status:        status,
+			Email:         email,
+			AccountType:   accountType,
 			Disabled:      file.Disabled,
 			Unavailable:   file.Unavailable,
 			Success:       file.Success,
 			Failed:        file.Failed,
 			NextRetryUnix: file.NextRetryUnix,
+			Models:        models,
 		})
+		file.Email = email
+		file.AccountType = accountType
 		if file.AuthIndex == "" || file.RuntimeOnly {
 			continue
 		}
@@ -107,10 +127,12 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 func fetchOne(host Host, file AuthFile) Account {
 	provider := NormalizeProvider(firstNonEmpty(file.Provider, file.Type))
 	account := Account{
-		Provider:  provider,
-		AuthIndex: file.AuthIndex,
-		Status:    file.Status,
-		Supported: SupportedProvider(provider),
+		Provider:    provider,
+		AuthIndex:   file.AuthIndex,
+		Status:      file.Status,
+		Email:       file.Email,
+		AccountType: file.AccountType,
+		Supported:   SupportedProvider(provider),
 	}
 	if !account.Supported {
 		return account

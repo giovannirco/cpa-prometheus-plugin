@@ -13,6 +13,9 @@ type fakeHost struct {
 }
 
 func (f *fakeHost) ListAuth() ([]AuthFile, error) { return f.files, nil }
+func (f *fakeHost) GetRuntime(string) (RuntimeAuth, error) {
+	return RuntimeAuth{}, nil
+}
 func (f *fakeHost) GetAuthJSON(authIndex string) ([]byte, error) {
 	raw, ok := f.json[authIndex]
 	if !ok {
