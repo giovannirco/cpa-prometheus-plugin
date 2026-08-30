@@ -24,7 +24,7 @@ const (
 	metricsManagePath   = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.1.1"
+var PluginVersion = "0.1.2"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -149,15 +149,15 @@ func (rt *Runtime) shutdown() {
 }
 
 type usageJSON struct {
-	Provider    string        `json:"Provider"`
-	Model       string        `json:"Model"`
-	AuthIndex   string        `json:"AuthIndex"`
-	Latency     int64         `json:"Latency"`
-	Failed      bool          `json:"Failed"`
-	Failure     usageFailure  `json:"Failure"`
-	Detail      usageDetail   `json:"Detail"`
-	APIKey      string        `json:"APIKey"`
-	RequestedAt time.Time     `json:"RequestedAt"`
+	Provider    string       `json:"Provider"`
+	Model       string       `json:"Model"`
+	AuthIndex   string       `json:"AuthIndex"`
+	Latency     int64        `json:"Latency"`
+	Failed      bool         `json:"Failed"`
+	Failure     usageFailure `json:"Failure"`
+	Detail      usageDetail  `json:"Detail"`
+	APIKey      string       `json:"APIKey"`
+	RequestedAt time.Time    `json:"RequestedAt"`
 }
 
 type usageFailure struct {

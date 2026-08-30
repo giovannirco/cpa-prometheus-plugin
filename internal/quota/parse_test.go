@@ -25,8 +25,23 @@ func TestParseCodexUsedPercent(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("len=%d %#v", len(got), got)
 	}
-	if got[0].ID != "primary" || got[0].UsedRatio != 0.4 || got[0].RemainingRatio != 0.6 {
-		t.Fatalf("primary = %#v", got[0])
+	if got[0].ID != "five_hour" || got[0].UsedRatio != 0.4 || got[0].RemainingRatio != 0.6 {
+		t.Fatalf("five_hour = %#v", got[0])
+	}
+	if got[1].ID != "seven_day" || got[1].UsedRatio != 0.1 || got[1].RemainingRatio != 0.9 {
+		t.Fatalf("seven_day = %#v", got[1])
+	}
+}
+
+func TestParseCodexAliasesPrimarySecondaryToFiveHourSevenDay(t *testing.T) {
+	body := []byte(`{"rate_limit":{"primary_window":{"used_percent":100},"secondary_window":{"used_percent":0}}}`)
+	got := ParseWindows("codex", body)
+	ids := windowIDs(got)
+	if contains(ids, "primary") || contains(ids, "secondary") {
+		t.Fatalf("legacy Codex window ids leaked: %#v", got)
+	}
+	if !contains(ids, "five_hour") || !contains(ids, "seven_day") {
+		t.Fatalf("want five_hour and seven_day, got %#v", got)
 	}
 }
 
@@ -36,8 +51,42 @@ func TestParseAntigravityRemainingFraction(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("len=%d %#v", len(got), got)
 	}
+	if got[0].ID != "gemini_weekly" {
+		t.Fatalf("collapsed id = %q, want gemini_weekly", got[0].ID)
+	}
 	if math.Abs(got[0].RemainingRatio-0.7) > 1e-9 || math.Abs(got[0].UsedRatio-0.3) > 1e-9 {
 		t.Fatalf("got %#v", got[0])
+	}
+}
+
+func TestParseAntigravityCollapsesModelsIntoUIGroups(t *testing.T) {
+	body := []byte(`{"models":[
+		{"name":"gemini-2.5-pro","quotaInfo":{"remainingFraction":0.9,"resetTime":"2026-09-01T00:00:00Z"}},
+		{"name":"gemini-3-flash","quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-09-01T00:00:00Z"}},
+		{"name":"chat_20706","quotaInfo":{"remainingFraction":0.8,"resetTime":"2026-09-01T00:00:00Z"}},
+		{"name":"tab_flash_lite_preview","quotaInfo":{"remainingFraction":1,"resetTime":"2026-09-01T00:00:00Z"}},
+		{"name":"claude-sonnet-4-6","quotaInfo":{"remainingFraction":0.5,"resetTime":"2026-09-02T00:00:00Z"}},
+		{"name":"claude-opus-4-6-thinking","quotaInfo":{"remainingFraction":0.2,"resetTime":"2026-09-02T00:00:00Z"}},
+		{"name":"gpt-oss-120b-medium","quotaInfo":{"remainingFraction":0.6,"resetTime":"2026-09-02T00:00:00Z"}}
+	]}`)
+	got := ParseWindows("antigravity", body)
+	ids := windowIDs(got)
+	if len(got) != 2 {
+		t.Fatalf("want 2 UI groups, got %d %#v", len(got), got)
+	}
+	if contains(ids, "gemini-2.5-pro") || contains(ids, "claude-sonnet-4-6") || contains(ids, "gpt-oss-120b-medium") {
+		t.Fatalf("per-model windows leaked: %#v", got)
+	}
+	gemini := byID(got, "gemini_weekly")
+	claudeGPT := byID(got, "claude_gpt_weekly")
+	if gemini == nil || claudeGPT == nil {
+		t.Fatalf("missing UI group ids: %#v", got)
+	}
+	if math.Abs(gemini.RemainingRatio-0.4) > 1e-9 {
+		t.Fatalf("gemini group should use tightest remaining 0.4, got %#v", gemini)
+	}
+	if math.Abs(claudeGPT.RemainingRatio-0.2) > 1e-9 {
+		t.Fatalf("claude/gpt group should use tightest remaining 0.2, got %#v", claudeGPT)
 	}
 }
 
@@ -82,4 +131,57 @@ func TestParseDoesNotRequireTokensInBody(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%#v", got)
 	}
+}
+
+func TestParseXAIGrokBuildWindowOnlyWhenPresent(t *testing.T) {
+	without := []byte(`{"config":{"creditUsagePercent":8,"currentPeriod":{"end":"2026-09-02T07:52:00Z"}}}`)
+	got := ParseWindows("xai", without)
+	if contains(windowIDs(got), "grok_build") || contains(windowIDs(got), "grokbuild") {
+		t.Fatalf("invented grok_build: %#v", got)
+	}
+	with := []byte(`{"config":{"creditUsagePercent":8,"currentPeriod":{"end":"2026-09-02T07:52:00Z"},"grokBuild":{"used_percent":12,"resets_at":"2026-09-05T00:00:00Z"}}}`)
+	got = ParseWindows("xai", with)
+	gb := byID(got, "grok_build")
+	if gb == nil {
+		t.Fatalf("missing grok_build when JSON has grokBuild: %#v", got)
+	}
+	if math.Abs(gb.UsedRatio-0.12) > 1e-9 {
+		t.Fatalf("grok_build used %#v", gb)
+	}
+	if byID(got, "weekly") == nil {
+		t.Fatalf("weekly should remain: %#v", got)
+	}
+}
+
+func TestParseXAIPayAsYouGoHasNoWindows(t *testing.T) {
+	got := ParseWindows("xai", []byte(`{"config":{}}`))
+	if len(got) != 0 {
+		t.Fatalf("PAYG should not invent windows: %#v", got)
+	}
+}
+
+func windowIDs(windows []Window) []string {
+	out := make([]string, 0, len(windows))
+	for _, w := range windows {
+		out = append(out, w.ID)
+	}
+	return out
+}
+
+func byID(windows []Window, id string) *Window {
+	for i := range windows {
+		if windows[i].ID == id {
+			return &windows[i]
+		}
+	}
+	return nil
+}
+
+func contains(ids []string, want string) bool {
+	for _, id := range ids {
+		if id == want {
+			return true
+		}
+	}
+	return false
 }

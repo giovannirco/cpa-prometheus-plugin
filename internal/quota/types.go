@@ -20,9 +20,14 @@ type Account struct {
 }
 
 type Credential struct {
-	Provider  string
-	AuthIndex string
-	Status    string
+	Provider      string
+	AuthIndex     string
+	Status        string
+	Disabled      bool
+	Unavailable   bool
+	Success       int64
+	Failed        int64
+	NextRetryUnix int64
 }
 
 type Config struct {

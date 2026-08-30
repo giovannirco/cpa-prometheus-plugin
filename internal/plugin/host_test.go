@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,6 +14,46 @@ import (
 type cpaHTTPResponse struct {
 	StatusCode int
 	Body       []byte
+}
+
+func TestHostAuthListDecodesNumericsAndDropsEmail(t *testing.T) {
+	host := NewCallbackHost(func(method string, request []byte) ([]byte, error) {
+		if method != "host.auth.list" {
+			t.Fatalf("method = %s", method)
+		}
+		return okJSON(map[string]any{
+			"files": []map[string]any{{
+				"auth_index":       "a1",
+				"provider":         "xai",
+				"status":           "active",
+				"disabled":         false,
+				"unavailable":      true,
+				"success":          12,
+				"failed":           3,
+				"next_retry_after": "2027-01-15T00:00:00Z",
+				"email":            "gio@example.com",
+				"name":             "gio@example.com.json",
+				"path":             "/root/.cli-proxy-api/gio@example.com.json",
+			}},
+		}), nil
+	})
+	files, err := host.ListAuth()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("files=%d", len(files))
+	}
+	f := files[0]
+	if f.Success != 12 || f.Failed != 3 || !f.Unavailable || f.Disabled {
+		t.Fatalf("numerics not decoded: %#v", f)
+	}
+	if f.NextRetryUnix == 0 {
+		t.Fatalf("next_retry_after not decoded: %#v", f)
+	}
+	if strings.Contains(f.AuthIndex, "@") || strings.Contains(fmt.Sprintf("%#v", f), "gio@example.com") {
+		t.Fatalf("email must not be copied onto AuthFile: %#v", f)
+	}
 }
 
 func TestDoHTTPUnmarshalsCPAShapedHostResult(t *testing.T) {

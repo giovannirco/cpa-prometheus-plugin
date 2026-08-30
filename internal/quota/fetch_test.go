@@ -9,7 +9,7 @@ import (
 type fakeHost struct {
 	files []AuthFile
 	json  map[string][]byte
-	http func(HTTPRequest) (HTTPResponse, error)
+	http  func(HTTPRequest) (HTTPResponse, error)
 }
 
 func (f *fakeHost) ListAuth() ([]AuthFile, error) { return f.files, nil }
@@ -77,6 +77,29 @@ func TestPollFetchesClaudeAndIsolates429(t *testing.T) {
 		if strings.Contains(acc.Error, "tok-") || strings.Contains(fmt.Sprintf("%#v", acc), "tok-") {
 			t.Fatalf("token leaked into account: %#v", acc)
 		}
+	}
+}
+
+func TestPollCopiesAuthNumericsOntoCredentials(t *testing.T) {
+	host := &fakeHost{
+		files: []AuthFile{{
+			AuthIndex: "a1", Provider: "xai", Status: "active",
+			Unavailable: true, Success: 12, Failed: 3, NextRetryUnix: 1_800_000_000,
+		}},
+		json: map[string][]byte{"a1": []byte(`{"access_token":"x"}`)},
+		http: func(HTTPRequest) (HTTPResponse, error) {
+			return HTTPResponse{StatusCode: 200, Body: []byte(`{"config":{}}`)}, nil
+		},
+	}
+	accounts, creds, err := Poll(host, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(creds) != 1 || creds[0].Success != 12 || creds[0].Failed != 3 || !creds[0].Unavailable || creds[0].NextRetryUnix != 1_800_000_000 {
+		t.Fatalf("creds %#v", creds)
+	}
+	if len(accounts) != 1 || !accounts[0].Supported || len(accounts[0].Windows) != 0 {
+		t.Fatalf("PAYG account should be supported with empty windows: %#v", accounts)
 	}
 }
 

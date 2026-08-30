@@ -62,7 +62,13 @@ type Collector struct {
 	quotaReset       *prometheus.GaugeVec
 	quotaLastSuccess *prometheus.GaugeVec
 	quotaSupported   *prometheus.GaugeVec
+	quotaHasWindow   *prometheus.GaugeVec
 	quotaErrors      *prometheus.CounterVec
+	authSuccess      *prometheus.GaugeVec
+	authFailed       *prometheus.GaugeVec
+	authDisabled     *prometheus.GaugeVec
+	authUnavailable  *prometheus.GaugeVec
+	authNextRetry    *prometheus.GaugeVec
 
 	mu          sync.Mutex
 	seenModels  map[string]map[string]struct{}
@@ -156,11 +162,42 @@ func New(version string) *Collector {
 		Help:        "Quota fetch errors isolated per provider.",
 		ConstLabels: constLabels,
 	}, []string{"provider", "reason"})
+	c.quotaHasWindow = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_quota_has_window",
+		Help:        "1 if this credential currently exposes a quota window; 0 for pay-as-you-go or empty quota payloads.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
+	c.authSuccess = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_success",
+		Help:        "Recent successful request count from host.auth.list (not a Prom counter; host snapshot).",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
+	c.authFailed = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_failed",
+		Help:        "Recent failed request count from host.auth.list (not a Prom counter; host snapshot).",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
+	c.authDisabled = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_disabled",
+		Help:        "1 if host.auth.list reports the credential as disabled.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
+	c.authUnavailable = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_unavailable",
+		Help:        "1 if host.auth.list reports the credential as unavailable.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
+	c.authNextRetry = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name:        "cliproxy_auth_next_retry_timestamp_seconds",
+		Help:        "Unix timestamp of host.auth.list next_retry_after when cooling down.",
+		ConstLabels: constLabels,
+	}, []string{"provider", "auth_index"})
 
 	reg.MustRegister(
 		c.info, c.up, c.pollInterval, c.credentials, c.modelsSeen,
 		c.requests, c.failures, c.duration, c.tokens,
-		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaErrors,
+		c.quotaUsed, c.quotaRemaining, c.quotaReset, c.quotaLastSuccess, c.quotaSupported, c.quotaHasWindow, c.quotaErrors,
+		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
 	)
 	c.info.WithLabelValues(version).Set(1)
 	c.up.Set(1)
@@ -222,10 +259,32 @@ func (c *Collector) ObserveUsage(rec UsageRecord) {
 
 func (c *Collector) ApplyCredentials(creds []quota.Credential) {
 	c.credentials.Reset()
+	c.authSuccess.Reset()
+	c.authFailed.Reset()
+	c.authDisabled.Reset()
+	c.authUnavailable.Reset()
+	c.authNextRetry.Reset()
 	counts := map[[2]string]int{}
 	for _, cred := range creds {
-		key := [2]string{labels.Provider(cred.Provider), labels.Status(cred.Status)}
-		counts[key]++
+		provider := labels.Provider(cred.Provider)
+		status := labels.Status(cred.Status)
+		counts[[2]string{provider, status}]++
+		authIndex := labels.AuthIndex(cred.AuthIndex)
+		c.authSuccess.WithLabelValues(provider, authIndex).Set(float64(cred.Success))
+		c.authFailed.WithLabelValues(provider, authIndex).Set(float64(cred.Failed))
+		disabled := 0.0
+		if cred.Disabled {
+			disabled = 1
+		}
+		unavailable := 0.0
+		if cred.Unavailable {
+			unavailable = 1
+		}
+		c.authDisabled.WithLabelValues(provider, authIndex).Set(disabled)
+		c.authUnavailable.WithLabelValues(provider, authIndex).Set(unavailable)
+		if cred.NextRetryUnix > 0 {
+			c.authNextRetry.WithLabelValues(provider, authIndex).Set(float64(cred.NextRetryUnix))
+		}
 	}
 	for key, n := range counts {
 		c.credentials.WithLabelValues(key[0], key[1]).Set(float64(n))
@@ -238,6 +297,7 @@ func (c *Collector) ApplyQuota(accounts []quota.Account) {
 	c.quotaReset.Reset()
 	c.quotaLastSuccess.Reset()
 	c.quotaSupported.Reset()
+	c.quotaHasWindow.Reset()
 	for _, account := range accounts {
 		provider := labels.Provider(account.Provider)
 		authIndex := labels.AuthIndex(account.AuthIndex)
@@ -246,6 +306,11 @@ func (c *Collector) ApplyQuota(accounts []quota.Account) {
 			supported = 1
 		}
 		c.quotaSupported.WithLabelValues(provider, authIndex).Set(supported)
+		hasWindow := 0.0
+		if len(account.Windows) > 0 {
+			hasWindow = 1
+		}
+		c.quotaHasWindow.WithLabelValues(provider, authIndex).Set(hasWindow)
 		if account.Error != "" {
 			c.quotaErrors.WithLabelValues(provider, reasonLabel(account.Error)).Inc()
 		}

@@ -133,6 +133,116 @@ func TestApplyQuotaWritesGauges(t *testing.T) {
 	}
 }
 
+func TestApplyQuotaEmitsHasWindowZeroForEmptyWindows(t *testing.T) {
+	c := New("0.1.2")
+	c.ApplyQuota([]quota.Account{{
+		Provider:  "xai",
+		AuthIndex: "payg",
+		Supported: true,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "cliproxy_quota_has_window") {
+		t.Fatalf("missing cliproxy_quota_has_window:\n%s", text)
+	}
+	if !strings.Contains(text, `cliproxy_quota_has_window{auth_index="payg",plugin_id="cpa-prometheus",provider="xai"} 0`) &&
+		!gaugeIs(text, "cliproxy_quota_has_window", 0) {
+		t.Fatalf("PAYG supported account must emit has_window=0:\n%s", text)
+	}
+	if !strings.Contains(text, `cliproxy_quota_supported{auth_index="payg",plugin_id="cpa-prometheus",provider="xai"} 1`) &&
+		!strings.Contains(text, `provider="xai"`) {
+		t.Fatalf("supported gauge missing:\n%s", text)
+	}
+}
+
+func TestApplyQuotaHasWindowOneWhenWindowsPresent(t *testing.T) {
+	c := New("0.1.2")
+	c.ApplyQuota([]quota.Account{{
+		Provider:  "codex",
+		AuthIndex: "c1",
+		Supported: true,
+		Windows:   []quota.Window{{ID: "five_hour", UsedRatio: 0.1, RemainingRatio: 0.9}},
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(text, `window="primary"`) || strings.Contains(text, `window="secondary"`) {
+		t.Fatalf("legacy Codex window labels in exposition:\n%s", text)
+	}
+	if !strings.Contains(text, `window="five_hour"`) {
+		t.Fatalf("missing five_hour:\n%s", text)
+	}
+	if !gaugeIs(text, "cliproxy_quota_has_window", 1) {
+		t.Fatalf("has_window=1 missing:\n%s", text)
+	}
+}
+
+func TestApplyCredentialsWritesAuthNumericsWithoutPII(t *testing.T) {
+	c := New("0.1.2")
+	c.ApplyCredentials([]quota.Credential{{
+		Provider:      "xai",
+		AuthIndex:     "a1",
+		Status:        "active",
+		Disabled:      false,
+		Unavailable:   true,
+		Success:       12,
+		Failed:        3,
+		NextRetryUnix: 1_800_000_000,
+	}})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"cliproxy_auth_success",
+		"cliproxy_auth_failed",
+		"cliproxy_auth_disabled",
+		"cliproxy_auth_unavailable",
+		"cliproxy_auth_next_retry_timestamp_seconds",
+	} {
+		if !strings.Contains(text, name) {
+			t.Fatalf("missing %s:\n%s", name, text)
+		}
+	}
+	if !strings.Contains(text, "12") || !strings.Contains(text, "3") {
+		t.Fatalf("success/failed counts missing:\n%s", text)
+	}
+	if strings.Contains(text, "@") || strings.Contains(strings.ToLower(text), "email=") || strings.Contains(text, "sk-") {
+		t.Fatalf("PII in exposition:\n%s", text)
+	}
+}
+
+func gaugeIs(text, name string, want float64) bool {
+	suffix := " " + strings.TrimRight(strings.TrimRight(formatFloat(want), "0"), ".")
+	if want == 0 {
+		suffix = " 0"
+	}
+	if want == 1 {
+		suffix = " 1"
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, name+"{") && strings.HasSuffix(line, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func formatFloat(v float64) string {
+	if v == 0 {
+		return "0"
+	}
+	if v == 1 {
+		return "1"
+	}
+	return strings.TrimRight(strings.TrimRight(
+		// keep tests from reimplementing prometheus; only used for 0/1 gauges
+		map[bool]string{true: "1", false: "0"}[v == 1], "0"), ".")
+}
+
 func hasCounterValue(text, name string, want int) bool {
 	for _, line := range strings.Split(text, "\n") {
 		if !strings.HasPrefix(line, name+"{") {

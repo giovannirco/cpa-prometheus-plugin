@@ -11,13 +11,16 @@ import (
 )
 
 type AuthFile struct {
-	AuthIndex   string
-	Provider    string
-	Type        string
-	Status      string
-	Disabled    bool
-	Unavailable bool
-	RuntimeOnly bool
+	AuthIndex     string
+	Provider      string
+	Type          string
+	Status        string
+	Disabled      bool
+	Unavailable   bool
+	RuntimeOnly   bool
+	Success       int64
+	Failed        int64
+	NextRetryUnix int64
 }
 
 type HTTPRequest struct {
@@ -67,7 +70,16 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 			status = "active"
 		}
 		provider := NormalizeProvider(firstNonEmpty(file.Provider, file.Type))
-		creds = append(creds, Credential{Provider: provider, AuthIndex: file.AuthIndex, Status: status})
+		creds = append(creds, Credential{
+			Provider:      provider,
+			AuthIndex:     file.AuthIndex,
+			Status:        status,
+			Disabled:      file.Disabled,
+			Unavailable:   file.Unavailable,
+			Success:       file.Success,
+			Failed:        file.Failed,
+			NextRetryUnix: file.NextRetryUnix,
+		})
 		if file.AuthIndex == "" || file.RuntimeOnly {
 			continue
 		}

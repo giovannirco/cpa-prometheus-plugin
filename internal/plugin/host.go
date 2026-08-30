@@ -3,6 +3,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/giovannirco/cpa-prometheus-plugin/internal/quota"
 )
@@ -22,13 +23,19 @@ type hostAuthListResponse struct {
 }
 
 type hostAuthFile struct {
-	AuthIndex   string `json:"auth_index"`
-	Provider    string `json:"provider"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Disabled    bool   `json:"disabled"`
-	Unavailable bool   `json:"unavailable"`
-	RuntimeOnly bool   `json:"runtime_only"`
+	AuthIndex      string    `json:"auth_index"`
+	Provider       string    `json:"provider"`
+	Type           string    `json:"type"`
+	Status         string    `json:"status"`
+	Disabled       bool      `json:"disabled"`
+	Unavailable    bool      `json:"unavailable"`
+	RuntimeOnly    bool      `json:"runtime_only"`
+	Success        int64     `json:"success"`
+	Failed         int64     `json:"failed"`
+	NextRetryAfter time.Time `json:"next_retry_after"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	Path           string    `json:"path"`
 }
 
 type hostAuthGetRequest struct {
@@ -63,14 +70,24 @@ func (h callbackHost) ListAuth() ([]quota.AuthFile, error) {
 	}
 	out := make([]quota.AuthFile, 0, len(resp.Files))
 	for _, f := range resp.Files {
+		_ = f.Email
+		_ = f.Name
+		_ = f.Path
+		nextRetry := int64(0)
+		if !f.NextRetryAfter.IsZero() {
+			nextRetry = f.NextRetryAfter.Unix()
+		}
 		out = append(out, quota.AuthFile{
-			AuthIndex:   f.AuthIndex,
-			Provider:    f.Provider,
-			Type:        f.Type,
-			Status:      f.Status,
-			Disabled:    f.Disabled,
-			Unavailable: f.Unavailable,
-			RuntimeOnly: f.RuntimeOnly,
+			AuthIndex:     f.AuthIndex,
+			Provider:      f.Provider,
+			Type:          f.Type,
+			Status:        f.Status,
+			Disabled:      f.Disabled,
+			Unavailable:   f.Unavailable,
+			RuntimeOnly:   f.RuntimeOnly,
+			Success:       f.Success,
+			Failed:        f.Failed,
+			NextRetryUnix: nextRetry,
 		})
 	}
 	return out, nil

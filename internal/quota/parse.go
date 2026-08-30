@@ -99,7 +99,7 @@ func parseCodex(payload map[string]any) []Window {
 	if rate == nil {
 		rate = payload
 	}
-	for _, item := range []struct{ id, key string }{{"primary", "primary_window"}, {"secondary", "secondary_window"}} {
+	for _, item := range []struct{ id, key string }{{"five_hour", "primary_window"}, {"seven_day", "secondary_window"}} {
 		w, _ := rate[item.key].(map[string]any)
 		if w == nil {
 			continue
@@ -125,7 +125,7 @@ func parseAntigravity(payload map[string]any) []Window {
 				}
 				out = append(out, antigravityWindow(id, item))
 			}
-			return compactWindows(out)
+			return collapseAntigravityGroups(compactWindows(out))
 		}
 	}
 	for _, raw := range models {
@@ -136,7 +136,39 @@ func parseAntigravity(payload map[string]any) []Window {
 		id := firstString(item["name"], item["id"], item["model"])
 		out = append(out, antigravityWindow(id, item))
 	}
-	return compactWindows(out)
+	return collapseAntigravityGroups(compactWindows(out))
+}
+
+func collapseAntigravityGroups(in []Window) []Window {
+	groups := map[string]Window{}
+	order := make([]string, 0, 2)
+	for _, w := range in {
+		id := antigravityGroupID(w.ID)
+		existing, ok := groups[id]
+		if !ok {
+			w.ID = id
+			groups[id] = w
+			order = append(order, id)
+			continue
+		}
+		if w.RemainingRatio < existing.RemainingRatio {
+			w.ID = id
+			groups[id] = w
+		}
+	}
+	out := make([]Window, 0, len(order))
+	for _, id := range order {
+		out = append(out, groups[id])
+	}
+	return out
+}
+
+func antigravityGroupID(model string) string {
+	s := strings.ToLower(model)
+	if strings.Contains(s, "claude") || strings.Contains(s, "gpt") {
+		return "claude_gpt_weekly"
+	}
+	return "gemini_weekly"
 }
 
 func antigravityWindow(id string, item map[string]any) Window {
@@ -223,10 +255,15 @@ func parseXAI(payload map[string]any) []Window {
 		used, remaining := usedRemaining(credits)
 		out = append(out, Window{ID: "credits", UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(credits["resets_at"], credits["reset_at"], reset))})
 	}
-	for _, key := range []string{"weekly", "grok_build", "grokbuild", "grokBuild"} {
-		w, _ := payload[key].(map[string]any)
+	for _, item := range []struct{ id, key string }{
+		{"weekly", "weekly"},
+		{"grok_build", "grok_build"},
+		{"grok_build", "grokbuild"},
+		{"grok_build", "grokBuild"},
+	} {
+		w, _ := payload[item.key].(map[string]any)
 		if w == nil && config != nil {
-			w, _ = config[key].(map[string]any)
+			w, _ = config[item.key].(map[string]any)
 		}
 		if w == nil {
 			continue
@@ -235,7 +272,7 @@ func parseXAI(payload map[string]any) []Window {
 		if used == 0 && remaining == 0 && w["used_percent"] == nil && w["utilization"] == nil {
 			continue
 		}
-		out = append(out, Window{ID: slug(key), UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(w["resets_at"], w["reset_at"], reset))})
+		out = append(out, Window{ID: item.id, UsedRatio: used, RemainingRatio: remaining, ResetUnix: unixTime(firstValue(w["resets_at"], w["reset_at"], reset))})
 	}
 	if len(out) == 0 {
 		used, remaining := usedRemaining(payload)
@@ -293,11 +330,17 @@ func usedRemaining(m map[string]any) (used, remaining float64) {
 }
 
 func compactWindows(in []Window) []Window {
-	out := in[:0]
+	seen := map[string]int{}
+	out := make([]Window, 0, len(in))
 	for _, w := range in {
 		if w.ID == "" {
 			continue
 		}
+		if i, ok := seen[w.ID]; ok {
+			out[i] = w
+			continue
+		}
+		seen[w.ID] = len(out)
 		out = append(out, w)
 	}
 	return out
