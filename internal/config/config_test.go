@@ -48,6 +48,14 @@ func TestParseRejectsOversizedYAML(t *testing.T) {
 	}
 }
 
+func TestParseRejectsYAMLAnchors(t *testing.T) {
+	yamlText := "a: &id 1\nb: *id\n"
+	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte(yamlText)})
+	if _, err := Parse(payload); err == nil {
+		t.Fatal("expected error for yaml anchors")
+	}
+}
+
 func FuzzParse(f *testing.F) {
 	f.Add([]byte(""))
 	f.Add([]byte(`{"config_yaml":"quota-refresh-interval: 5m\n"}`))

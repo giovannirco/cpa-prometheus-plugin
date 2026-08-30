@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	MaxConfigYAMLBytes = 64 << 10
+	MaxConfigYAMLBytes = 8 << 10
 	MaxConcurrency     = 16
 	maxQuotaInterval   = 24 * time.Hour
 	maxRequestTimeout  = 2 * time.Minute
@@ -43,6 +43,9 @@ func Parse(request []byte) (Config, error) {
 	if len(request) == 0 {
 		return cfg, nil
 	}
+	if len(request) > MaxConfigYAMLBytes+2048 {
+		return cfg, fmt.Errorf("lifecycle request exceeds %d bytes", MaxConfigYAMLBytes+2048)
+	}
 	var req lifecycleRequest
 	if err := json.Unmarshal(request, &req); err != nil {
 		return cfg, fmt.Errorf("decode lifecycle: %w", err)
@@ -56,6 +59,9 @@ func Parse(request []byte) (Config, error) {
 	}
 	if len(text) > MaxConfigYAMLBytes {
 		return cfg, fmt.Errorf("plugin config yaml exceeds %d bytes", MaxConfigYAMLBytes)
+	}
+	if strings.ContainsAny(text, "&*") {
+		return cfg, fmt.Errorf("plugin config yaml must not use anchors or aliases")
 	}
 	var raw struct {
 		QuotaRefreshInterval string `yaml:"quota-refresh-interval"`
