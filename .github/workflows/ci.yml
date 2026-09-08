@@ -65,7 +65,9 @@ jobs:
           if [ -n "${{ matrix.cc }}" ]; then export CC="${{ matrix.cc }}"; fi
           make VERSION=0.0.0-ci GOOS="${GOOS}" GOARCH="${GOARCH}" package
       - name: Check zip layout
+        # checkzip must be built for the runner, not the target, so this step
+        # deliberately does not export GOOS/GOARCH.
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: go run ./cmd/checkzip "dist/cpa-prometheus_0.0.0-ci_${GOOS}_${GOARCH}.zip" "${GOOS}"
+          TARGET_GOOS: ${{ matrix.goos }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
+        run: go run ./cmd/checkzip "dist/cpa-prometheus_0.0.0-ci_${TARGET_GOOS}_${TARGET_GOARCH}.zip" "${TARGET_GOOS}"
