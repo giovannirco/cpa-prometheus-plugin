@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.2 — 2026-09-08
+
+Security and robustness pass over the whole plugin (Trail of Bits review skills: sharp-edges, semgrep, supply-chain, fp-check). No metric names, labels, or values changed.
+
+- **Reconfiguring no longer stalls request accounting.** `startPoller` stopped the previous poller while holding the runtime mutex, and `Poller.Stop` blocks until an in-flight quota poll returns — a poll that can sit inside a host HTTP call for as long as CPA's client allows. A `plugin.reconfigure` during a slow poll therefore blocked `usage.handle`, which CPA invokes on the request path. The old poller is now stopped outside the lock. Covered by a regression test that fails against 0.2.1.
+- **Removed the `request-timeout` config field.** It was parsed, validated, and plumbed through, but never applied: `host.http.do` accepts no timeout, so CPA's own client owned the deadline the whole time. Advertising a control that cannot take effect is worse than not offering one. Existing keys are ignored, not rejected.
+- **`Poller.Stop` is now safe on a poller that was never started** (it previously blocked forever waiting on a channel nothing would close) and is idempotent; `Start` after `Stop` no longer runs the callback.
+- **An empty management path no longer returns metrics.** Metrics are served for an explicit route only, never as the fallback response to any management call reaching the plugin.
+- **Bounded the scrape handler** with `MaxRequestsInFlight` (4) and a 30s timeout, so a runaway scrape loop cannot drive unbounded concurrent gathers inside the host.
+- **Bounded recursion** in the credential-JSON key lookup with an explicit depth cap instead of relying on `encoding/json`'s internal nesting limit.
+- **Plugin shutdown is terminal.** A late ABI call after `shutdown` returned an error envelope instead of silently rebuilding the runtime and restarting the quota poller behind the host's back.
+- **Least privilege in CI.** `release.yml` granted `contents: write` to every job; only the publishing job needs it.
+- **Bumped `golang.org/x/sys` to v0.44.0** for GO-2026-5024 (Windows-only integer overflow). Not reachable from this code, but 0.2.1 began shipping a Windows artifact.
+- Documented why `unsafe` is unavoidable at the C ABI boundary and how every host-supplied length and pointer read is bounded.
+
 ## 0.2.1 — 2026-09-08
 
 - Ship `windows/amd64`. Releases now carry five zips (linux amd64/arm64, darwin amd64/arm64, windows amd64); the Windows zip holds `cpa-prometheus.dll` at its root. Cross-built with mingw-w64 on the Linux runner and, like every target, unverified on the host OS beyond the zip-layout check.

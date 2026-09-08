@@ -24,7 +24,7 @@ const (
 	metricsManagePath = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.2.1"
+var PluginVersion = "0.2.2"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -98,7 +98,6 @@ func (rt *Runtime) register(request []byte) []byte {
 			"Logo":             PluginLogo,
 			"ConfigFields": []map[string]string{
 				{"Name": "quota-refresh-interval", "Type": "string", "Description": "Quota poll interval. Default 5m."},
-				{"Name": "request-timeout", "Type": "string", "Description": "Per-account quota HTTP timeout. Default 20s."},
 				{"Name": "include-disabled", "Type": "boolean", "Description": "Include disabled credentials in quota scans."},
 			},
 		},
@@ -114,13 +113,18 @@ func (rt *Runtime) startPoller(host quota.Host, cfg config.Config) {
 		return
 	}
 	rt.mu.Lock()
-	if rt.poller != nil {
-		rt.poller.Stop()
-	}
+	old := rt.poller
 	p := quota.NewPoller(cfg.QuotaRefreshInterval)
 	rt.poller = p
 	col := rt.col
 	rt.mu.Unlock()
+	// Stop the previous poller *outside* rt.mu. Stop blocks until an in-flight
+	// poll returns, and a poll can sit inside a host HTTP call for as long as
+	// the host's client allows. Holding rt.mu across that would stall
+	// usage.handle, which CPA invokes on the request path.
+	if old != nil {
+		old.Stop()
+	}
 	p.Start(func() {
 		accounts, creds, err := quota.Poll(host, cfg.Quota())
 		if err != nil {
@@ -227,7 +231,7 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 	if req.Method != "" && !strings.EqualFold(req.Method, http.MethodGet) {
 		return okJSON(managementResponse{StatusCode: http.StatusMethodNotAllowed, Headers: map[string][]string{"content-type": {"text/plain"}}, Body: []byte("method not allowed")})
 	}
-	if req.Path != "" && !isMetricsPath(req.Path) {
+	if !isMetricsPath(req.Path) {
 		return okJSON(managementResponse{StatusCode: http.StatusNotFound, Headers: map[string][]string{"content-type": {"text/plain"}}, Body: []byte("not found")})
 	}
 	rt.mu.Lock()
@@ -253,9 +257,14 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 
 // isMetricsPath accepts only the authenticated management metrics route.
 // Resource routes (/v0/resource/plugins/...) are static-only by store policy
-// and this plugin no longer registers or serves anything there.
+// and this plugin no longer registers or serves anything there. An empty path
+// is rejected too: metrics are served for an explicit route, never as the
+// fallback response to any management call that happens to reach the plugin.
 func isMetricsPath(path string) bool {
 	path = strings.TrimRight(path, "/")
+	if path == "" {
+		return false
+	}
 	if strings.Contains(strings.ToLower(path), "/resource/") {
 		return false
 	}

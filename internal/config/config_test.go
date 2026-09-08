@@ -49,7 +49,7 @@ func TestParseRejectsOversizedYAML(t *testing.T) {
 }
 
 func TestParseIgnoresRetiredScrapeAuthKeys(t *testing.T) {
-	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\nscrape-token: s3cret\nquota-refresh-interval: 10m\n")})
+	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\nscrape-token: s3cret\nrequest-timeout: 45s\nquota-refresh-interval: 10m\n")})
 	cfg, err := Parse(payload)
 	if err != nil {
 		t.Fatalf("retired keys must not break config parsing: %v", err)

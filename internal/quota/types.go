@@ -64,7 +64,6 @@ type RuntimeAuth struct {
 
 type Config struct {
 	Interval        time.Duration
-	RequestTimeout  time.Duration
 	IncludeDisabled bool
 	MaxConcurrency  int
 }
@@ -74,7 +73,6 @@ const MaxPollConcurrency = 16
 func DefaultConfig() Config {
 	return Config{
 		Interval:       5 * time.Minute,
-		RequestTimeout: 20 * time.Second,
 		MaxConcurrency: 4,
 	}
 }

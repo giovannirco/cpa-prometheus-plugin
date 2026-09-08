@@ -496,11 +496,24 @@ func (c *Collector) Gather() (string, error) {
 	return buf.String(), nil
 }
 
+// maxConcurrentScrapes bounds how many gathers can run at once. A gather walks
+// every registered metric, so an unbounded number of concurrent scrapes would
+// let a misconfigured scrape loop drive CPU and allocation inside the host.
+const maxConcurrentScrapes = 4
+
+// scrapeTimeout bounds a single exposition so a scrape cannot hold host
+// resources indefinitely.
+const scrapeTimeout = 30 * time.Second
+
 // ManagementMetricsHandler serves the Prometheus text exposition. It is only
 // reachable through the management route, which CPA protects with the
 // management key; the plugin exposes no resource-route metrics.
 func (c *Collector) ManagementMetricsHandler() http.Handler {
-	return promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{})
+	return promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{
+		ErrorHandling:       promhttp.HTTPErrorOnError,
+		MaxRequestsInFlight: maxConcurrentScrapes,
+		Timeout:             scrapeTimeout,
+	})
 }
 
 func WriteFamilies(w io.Writer, families []*dto.MetricFamily) error {

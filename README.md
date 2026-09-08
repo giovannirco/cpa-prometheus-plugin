@@ -151,18 +151,18 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 
 | Key | Default |
 |-----|---------|
-| `quota-refresh-interval` | `5m` |
-| `request-timeout` | `20s` |
+| `quota-refresh-interval` | `5m` (1m–24h) |
 | `include-disabled` | `false` |
+| `max-concurrency` | `4` (max 16) |
 
-`public-metrics` and `scrape-token` were removed in 0.2.0 along with the resource route. Both keys are ignored if left in `config.yaml`.
+`public-metrics` and `scrape-token` were removed in 0.2.0 along with the resource route. `request-timeout` was removed in 0.2.2: the plugin reaches the network through the host's `host.http.do` callback, which takes no timeout, so the field could never do what it claimed — the effective timeout is the one CPA's own HTTP client applies. All three keys are ignored if left in `config.yaml` rather than rejected.
 
 ## Build
 
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.2.1 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.2.2 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

@@ -1,5 +1,5 @@
 PLUGIN_ID ?= cpa-prometheus
-VERSION ?= 0.2.1
+VERSION ?= 0.2.2
 DIST ?= dist
 GOOS ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
