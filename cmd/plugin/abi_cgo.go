@@ -65,14 +65,26 @@ import (
 	"github.com/giovannirco/cpa-prometheus-plugin/internal/plugin"
 )
 
+// This file crosses the CLIProxyAPI plugin ABI, which is a C boundary: the
+// host hands us raw pointers and lengths and expects malloc'd buffers back.
+// The unsafe package is unavoidable here and is confined to this file. Every
+// length that arrives from the host passes through boundedLen before it is
+// used, and every pointer read is bounded (see boundedGoString).
 var (
-	runtimeMu sync.Mutex
-	runtime   *plugin.Runtime
+	runtimeMu   sync.Mutex
+	runtime     *plugin.Runtime
+	hasShutdown bool
 )
 
+// currentRuntime returns the live runtime, or nil once the host has shut the
+// plugin down. Shutdown is terminal: a late call must not resurrect the
+// runtime and restart the quota poller behind the host's back.
 func currentRuntime() *plugin.Runtime {
 	runtimeMu.Lock()
 	defer runtimeMu.Unlock()
+	if hasShutdown {
+		return nil
+	}
 	if runtime == nil {
 		runtime = plugin.NewRuntime(plugin.NewCallbackHost(hostCall))
 	}
@@ -137,6 +149,7 @@ func cliproxy_plugin_init(host *C.cliproxy_host_api, pluginAPI *C.cliproxy_plugi
 	}
 	runtimeMu.Lock()
 	C.store_host_api(host)
+	hasShutdown = false
 	runtime = plugin.NewRuntime(plugin.NewCallbackHost(hostCall))
 	runtimeMu.Unlock()
 	pluginAPI.abi_version = C.uint32_t(pluginABIVersion)
@@ -166,7 +179,12 @@ func cliproxyPluginCall(method *C.char, request *C.uint8_t, requestLen C.size_t,
 	if request != nil && n > 0 {
 		req = C.GoBytes(unsafe.Pointer(request), C.int(n))
 	}
-	writeResponse(response, currentRuntime().Handle(name, req))
+	rt := currentRuntime()
+	if rt == nil {
+		writeResponse(response, []byte(`{"ok":false,"error":{"code":"plugin_shutdown","message":"plugin has been shut down"}}`))
+		return 1
+	}
+	writeResponse(response, rt.Handle(name, req))
 	return 0
 }
 
@@ -183,6 +201,7 @@ func cliproxyPluginShutdown() {
 	runtimeMu.Lock()
 	rt := runtime
 	runtime = nil
+	hasShutdown = true
 	runtimeMu.Unlock()
 	if rt != nil {
 		_ = rt.Handle("plugin.shutdown", nil)

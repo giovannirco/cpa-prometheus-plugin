@@ -55,9 +55,6 @@ func Poll(host Host, cfg Config) ([]Account, []Credential, error) {
 	if cfg.Interval <= 0 {
 		cfg.Interval = DefaultRefreshInterval
 	}
-	if cfg.RequestTimeout <= 0 {
-		cfg.RequestTimeout = 20 * time.Second
-	}
 	if cfg.MaxConcurrency <= 0 {
 		cfg.MaxConcurrency = 4
 	}
@@ -298,28 +295,37 @@ func checkQuotaURL(raw string) error {
 	}
 }
 
+// maxLookupDepth bounds the recursive search through credential JSON. Go's
+// encoding/json currently refuses input nested deeper than 10000, but that is
+// an implementation detail of the standard library, not a contract this code
+// should depend on for its own stack safety.
+const maxLookupDepth = 64
+
 func lookupString(raw []byte, key string) string {
 	var doc any
 	if json.Unmarshal(raw, &doc) != nil {
 		return ""
 	}
-	return lookupAny(doc, key)
+	return lookupAny(doc, key, 0)
 }
 
-func lookupAny(value any, key string) string {
+func lookupAny(value any, key string, depth int) string {
+	if depth > maxLookupDepth {
+		return ""
+	}
 	switch v := value.(type) {
 	case map[string]any:
 		if s, ok := v[key].(string); ok && strings.TrimSpace(s) != "" {
 			return strings.TrimSpace(s)
 		}
 		for _, child := range v {
-			if s := lookupAny(child, key); s != "" {
+			if s := lookupAny(child, key, depth+1); s != "" {
 				return s
 			}
 		}
 	case []any:
 		for _, child := range v {
-			if s := lookupAny(child, key); s != "" {
+			if s := lookupAny(child, key, depth+1); s != "" {
 				return s
 			}
 		}

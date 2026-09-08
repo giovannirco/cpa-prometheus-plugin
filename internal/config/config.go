@@ -14,12 +14,10 @@ const (
 	MaxConfigYAMLBytes = 8 << 10
 	MaxConcurrency     = 16
 	maxQuotaInterval   = 24 * time.Hour
-	maxRequestTimeout  = 2 * time.Minute
 )
 
 type Config struct {
 	QuotaRefreshInterval time.Duration
-	RequestTimeout       time.Duration
 	IncludeDisabled      bool
 	MaxConcurrency       int
 }
@@ -28,7 +26,6 @@ func Default() Config {
 	d := quota.DefaultConfig()
 	return Config{
 		QuotaRefreshInterval: d.Interval,
-		RequestTimeout:       d.RequestTimeout,
 		MaxConcurrency:       d.MaxConcurrency,
 	}
 }
@@ -64,7 +61,6 @@ func Parse(request []byte) (Config, error) {
 	}
 	var raw struct {
 		QuotaRefreshInterval string `yaml:"quota-refresh-interval"`
-		RequestTimeout       string `yaml:"request-timeout"`
 		IncludeDisabled      *bool  `yaml:"include-disabled"`
 		MaxConcurrency       int    `yaml:"max-concurrency"`
 	}
@@ -77,13 +73,6 @@ func Parse(request []byte) (Config, error) {
 			return cfg, fmt.Errorf("quota-refresh-interval must be a Go duration between 1m and 24h")
 		}
 		cfg.QuotaRefreshInterval = d
-	}
-	if raw.RequestTimeout != "" {
-		d, err := time.ParseDuration(raw.RequestTimeout)
-		if err != nil || d < time.Second || d > maxRequestTimeout {
-			return cfg, fmt.Errorf("request-timeout must be a Go duration between 1s and 2m")
-		}
-		cfg.RequestTimeout = d
 	}
 	if raw.IncludeDisabled != nil {
 		cfg.IncludeDisabled = *raw.IncludeDisabled
@@ -115,7 +104,6 @@ func configYAMLText(raw json.RawMessage) (string, error) {
 func (c Config) Quota() quota.Config {
 	return quota.Config{
 		Interval:        c.QuotaRefreshInterval,
-		RequestTimeout:  c.RequestTimeout,
 		IncludeDisabled: c.IncludeDisabled,
 		MaxConcurrency:  c.MaxConcurrency,
 	}

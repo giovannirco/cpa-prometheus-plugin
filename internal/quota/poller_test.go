@@ -29,3 +29,44 @@ func TestPollerStartRunsImmediatelyThenStops(t *testing.T) {
 	}
 	p.Stop()
 }
+
+func TestStopWithoutStartDoesNotBlock(t *testing.T) {
+	p := NewPoller(time.Minute)
+	done := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop blocked on a poller that was never started")
+	}
+}
+
+func TestStopIsIdempotent(t *testing.T) {
+	p := NewPoller(time.Minute)
+	p.Start(func() {})
+	p.Stop()
+	done := make(chan struct{})
+	go func() {
+		p.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second Stop blocked")
+	}
+}
+
+func TestStartAfterStopDoesNotRun(t *testing.T) {
+	p := NewPoller(time.Minute)
+	p.Stop()
+	var ran int32
+	p.Start(func() { atomic.AddInt32(&ran, 1) })
+	time.Sleep(200 * time.Millisecond)
+	if atomic.LoadInt32(&ran) != 0 {
+		t.Fatal("Start ran the callback after Stop")
+	}
+}

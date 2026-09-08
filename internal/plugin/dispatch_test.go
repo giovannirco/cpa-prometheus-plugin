@@ -77,6 +77,36 @@ func TestResourceMetricsPathIsNotServed(t *testing.T) {
 	}
 }
 
+func TestManagementHandleRejectsEmptyPath(t *testing.T) {
+	rt := NewRuntime(nil)
+	_ = rt.Handle("plugin.register", nil)
+	raw := rt.Handle("management.handle", []byte(`{"Method":"GET"}`))
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+		t.Fatalf("%s", raw)
+	}
+	var resp managementResponse
+	if err := json.Unmarshal(env.Result, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 404 {
+		t.Fatalf("empty path status %d, want 404 (metrics need an explicit route)", resp.StatusCode)
+	}
+	if strings.Contains(string(resp.Body), "cliproxy_") {
+		t.Fatalf("empty path leaked metrics: %s", resp.Body)
+	}
+}
+
+func TestRegisterDoesNotAdvertiseRequestTimeout(t *testing.T) {
+	rt := NewRuntime(nil)
+	raw := rt.Handle("plugin.register", nil)
+	// request-timeout cannot be honoured: host.http.do takes no timeout, so
+	// the field must not be offered as if it were a working control.
+	if strings.Contains(string(raw), "request-timeout") {
+		t.Fatalf("register still advertises request-timeout: %s", raw)
+	}
+}
+
 func TestManagementRegisterAdvertisesNoResources(t *testing.T) {
 	rt := NewRuntime(nil)
 	raw := rt.Handle("management.register", nil)
