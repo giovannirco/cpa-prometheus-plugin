@@ -41,6 +41,11 @@ jobs:
           - os: macos-latest
             goos: darwin
             goarch: amd64
+          - os: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            cc: x86_64-w64-mingw32-gcc
+            extra_apt: gcc-mingw-w64-x86-64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

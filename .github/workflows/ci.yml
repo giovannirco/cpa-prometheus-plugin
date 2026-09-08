@@ -26,3 +26,48 @@ jobs:
           go test ./internal/config -fuzz=FuzzParse -fuzztime=10s
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+
+  build:
+    # Cross-build the targets a Linux runner can produce, so a broken cgo
+    # target surfaces on the PR instead of at tag time. darwin is covered by
+    # the release workflow's macOS runners.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+            cc: aarch64-linux-gnu-gcc
+            extra_apt: gcc-aarch64-linux-gnu
+          - goos: windows
+            goarch: amd64
+            cc: x86_64-w64-mingw32-gcc
+            extra_apt: gcc-mingw-w64-x86-64
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26.7"
+      - name: Cross compiler
+        if: matrix.extra_apt != ''
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.extra_apt }}
+      - name: Build and package
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          if [ -n "${{ matrix.cc }}" ]; then export CC="${{ matrix.cc }}"; fi
+          make VERSION=0.0.0-ci GOOS="${GOOS}" GOARCH="${GOARCH}" package
+      - name: Check zip layout
+        # checkzip must be built for the runner, not the target, so this step
+        # deliberately does not export GOOS/GOARCH.
+        env:
+          TARGET_GOOS: ${{ matrix.goos }}
+          TARGET_GOARCH: ${{ matrix.goarch }}
+        run: go run ./cmd/checkzip "dist/cpa-prometheus_0.0.0-ci_${TARGET_GOOS}_${TARGET_GOARCH}.zip" "${TARGET_GOOS}"
