@@ -2,7 +2,6 @@ package collector
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"fmt"
 	"io"
 	"net/http"
@@ -81,11 +80,9 @@ type Collector struct {
 	modelSeen              *prometheus.GaugeVec
 	modelAvailable         *prometheus.GaugeVec
 
-	mu            sync.Mutex
-	seenModels    map[string]map[string]struct{}
-	emails        map[string]string
-	scrapeToken   string
-	publicMetrics bool
+	mu         sync.Mutex
+	seenModels map[string]map[string]struct{}
+	emails     map[string]string
 }
 
 func New(version string) *Collector {
@@ -263,18 +260,6 @@ func New(version string) *Collector {
 	c.up.Set(1)
 	c.pollInterval.Set(DefaultQuotaRefreshInterval.Seconds())
 	return c
-}
-
-func (c *Collector) SetScrapeToken(token string) {
-	c.mu.Lock()
-	c.scrapeToken = strings.TrimSpace(token)
-	c.mu.Unlock()
-}
-
-func (c *Collector) SetPublicMetrics(v bool) {
-	c.mu.Lock()
-	c.publicMetrics = v
-	c.mu.Unlock()
 }
 
 func (c *Collector) SetPollInterval(d time.Duration) {
@@ -511,65 +496,11 @@ func (c *Collector) Gather() (string, error) {
 	return buf.String(), nil
 }
 
-func (c *Collector) MetricsHandler() http.Handler {
-	return c.metricsHandler(true)
-}
-
+// ManagementMetricsHandler serves the Prometheus text exposition. It is only
+// reachable through the management route, which CPA protects with the
+// management key; the plugin exposes no resource-route metrics.
 func (c *Collector) ManagementMetricsHandler() http.Handler {
-	return c.metricsHandler(false)
-}
-
-func (c *Collector) metricsHandler(resource bool) http.Handler {
-	inner := promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if resource && !c.resourceAllowed(r) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		inner.ServeHTTP(w, r)
-	})
-}
-
-func (c *Collector) resourceAllowed(r *http.Request) bool {
-	c.mu.Lock()
-	token := c.scrapeToken
-	public := c.publicMetrics
-	c.mu.Unlock()
-	if token != "" {
-		return scrapeTokenOK(r, token)
-	}
-	return public
-}
-
-func scrapeTokenOK(r *http.Request, token string) bool {
-	if r == nil || token == "" {
-		return false
-	}
-	if tokenEqual(strings.TrimSpace(r.Header.Get("X-Scrape-Token")), token) {
-		return true
-	}
-	return bearerTokenOK(r.Header.Get("Authorization"), token)
-}
-
-func bearerTokenOK(auth, token string) bool {
-	auth = strings.TrimSpace(auth)
-	if len(auth) < 7 || !strings.EqualFold(auth[:7], "bearer ") {
-		return false
-	}
-	return tokenEqual(strings.TrimSpace(auth[7:]), token)
-}
-
-func tokenEqual(got, want string) bool {
-	if want == "" {
-		return false
-	}
-	gb := []byte(got)
-	wb := []byte(want)
-	if len(gb) != len(wb) {
-		subtle.ConstantTimeCompare(wb, wb)
-		return false
-	}
-	return subtle.ConstantTimeCompare(gb, wb) == 1
+	return promhttp.HandlerFor(c.reg, promhttp.HandlerOpts{})
 }
 
 func WriteFamilies(w io.Writer, families []*dto.MetricFamily) error {

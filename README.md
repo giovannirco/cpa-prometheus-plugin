@@ -2,33 +2,42 @@
 
 CLIProxyAPI plugin that exports Prometheus metrics for proxy traffic and provider quota.
 
-CPA has no `/metrics` of its own. This plugin is an in-process `.so`. It hooks `usage.handle` for request stats, polls quota over `host.auth` + `host.http.do`, and serves text on a resource route. Host `GET /metrics` stays 404.
+CPA has no `/metrics` of its own. This plugin is an in-process `.so`. It hooks `usage.handle` for request stats, polls quota over `host.auth` + `host.http.do`, and serves Prometheus text on the **authenticated management route only**. Host `GET /metrics` stays 404.
 
 Needs a plugin-capable CPA v7.2.x image. The `_no-plugin` builds cannot load it.
 
 ## Scrape
 
-CPA resource routes are **not** management-authenticated. The store maintainer wants those routes limited to static/UI content, so this plugin defaults to **closed** on the resource path.
+CPA resource routes (`/v0/resource/plugins/...`) are **not** management-authenticated and are reserved by store policy for static deployed assets. This plugin registers **no** resource route: the only metrics endpoint is the management one, which CPA protects with the management key.
 
 | Path | Auth |
 |------|------|
-| `GET /v0/management/plugins/cpa-prometheus/metrics` | CPA management key (`Authorization: Bearer`). Always served. |
-| `GET /v0/resource/plugins/cpa-prometheus/metrics` | **401 by default.** Set `public-metrics: true` for an open LAN scrape, or set `scrape-token` and send `Authorization: Bearer` / `X-Scrape-Token`. |
+| `GET /v0/management/plugins/cpa-prometheus/metrics` | CPA management key (`Authorization: Bearer`). The only metrics endpoint. |
+| `GET /v0/resource/plugins/cpa-prometheus/metrics` | **Gone since 0.2.0.** Not registered, not served. |
 
-If `scrape-token` is set, it **wins**: resource GET is 401 unless the token is presented, even when `public-metrics` is true.
-
-Grafana Alloy example (dedicated scrape token, not the management key):
+Grafana Alloy example (management key, from a secret):
 
 ```alloy
 prometheus.scrape "cliproxyapi" {
   targets      = [{"__address__" = "cliproxyapi.cliproxyapi.svc:8317"}]
-  metrics_path = "/v0/resource/plugins/cpa-prometheus/metrics"
-  bearer_token = sys.env("CPA_PROMETHEUS_SCRAPE_TOKEN")
+  metrics_path = "/v0/management/plugins/cpa-prometheus/metrics"
+  bearer_token = sys.env("CPA_MANAGEMENT_KEY")
   job_name     = "cliproxyapi"
 }
 ```
 
-Prometheus Operator `ServiceMonitor` `bearerTokenSecret` works the same way. For an open LAN scrape, set `public-metrics: true` and leave `scrape-token` empty; a Kubernetes scrape with `prometheus.io/scrape` + `prometheus.io/path` is enough.
+Prometheus Operator `ServiceMonitor` works the same way with `bearerTokenSecret` holding the CPA management key:
+
+```yaml
+endpoints:
+  - port: http
+    path: /v0/management/plugins/cpa-prometheus/metrics
+    bearerTokenSecret:
+      name: cliproxyapi-management
+      key: management-key
+```
+
+Give the scraper the management key from a Secret; there is no plugin-side token any more, so treat that key as the scrape credential and keep the CPA management port off the public internet.
 
 Token-shaped values, cookies, file paths, and raw API keys are dropped from labels. Email stays as an identifier.
 
@@ -128,8 +137,6 @@ plugins:
       enabled: true
       priority: 50
       quota-refresh-interval: 5m
-      public-metrics: false
-      # scrape-token: "<dedicated token>"  # if set, Bearer / X-Scrape-Token required
 ```
 
 If `config.yaml` is a read-only Secret, `enabled: true` has to be in that file already. Store Install cannot persist config onto a read-only mount.
@@ -147,15 +154,15 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 | `quota-refresh-interval` | `5m` |
 | `request-timeout` | `20s` |
 | `include-disabled` | `false` |
-| `public-metrics` | `false` (resource `/metrics` is 401 unless true or a scrape-token is presented) |
-| `scrape-token` | empty |
+
+`public-metrics` and `scrape-token` were removed in 0.2.0 along with the resource route. Both keys are ignored if left in `config.yaml`.
 
 ## Build
 
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.1.8 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.2.0 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License
