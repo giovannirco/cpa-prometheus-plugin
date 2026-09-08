@@ -67,12 +67,27 @@ func ValidateRegistry(raw []byte, wantRepo string) error {
 	return nil
 }
 
-func ValidateLinuxZip(data []byte, pluginID string) error {
+// LibraryExt is the dynamic-library extension CLIProxyAPI expects at the zip
+// root for a given GOOS.
+func LibraryExt(goos string) string {
+	switch goos {
+	case "darwin":
+		return ".dylib"
+	case "windows":
+		return ".dll"
+	default:
+		return ".so"
+	}
+}
+
+// ValidatePlatformZip enforces the store's zip layout: exactly one dynamic
+// library, at the zip root, named <pluginID><ext> for the target GOOS.
+func ValidatePlatformZip(data []byte, pluginID, goos string) error {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("open zip: %w", err)
 	}
-	want := pluginID + ".so"
+	want := pluginID + LibraryExt(goos)
 	var found string
 	for _, file := range reader.File {
 		name := strings.TrimPrefix(file.Name, "./")
@@ -93,6 +108,11 @@ func ValidateLinuxZip(data []byte, pluginID string) error {
 		return fmt.Errorf("zip root library = %q, want %q", found, want)
 	}
 	return nil
+}
+
+// ValidateLinuxZip is ValidatePlatformZip for the linux target.
+func ValidateLinuxZip(data []byte, pluginID string) error {
+	return ValidatePlatformZip(data, pluginID, "linux")
 }
 
 func ChecksumsMatch(checksums []byte, filename string, zipData []byte) error {
@@ -118,13 +138,7 @@ func ChecksumsMatch(checksums []byte, filename string, zipData []byte) error {
 }
 
 func ZipRootLibrary(pluginID, goos string, library []byte) ([]byte, error) {
-	ext := ".so"
-	switch goos {
-	case "darwin":
-		ext = ".dylib"
-	case "windows":
-		ext = ".dll"
-	}
+	ext := LibraryExt(goos)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, err := zw.Create(pluginID + ext)

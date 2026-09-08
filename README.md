@@ -141,7 +141,7 @@ plugins:
 
 If `config.yaml` is a read-only Secret, `enabled: true` has to be in that file already. Store Install cannot persist config onto a read-only mount.
 
-Release zips are `cpa-prometheus_<version>_<goos>_<goarch>.zip` with the library at the zip root (`cpa-prometheus.so` / `.dylib`) plus a combined `checksums.txt`. CPA installs linux/amd64 as `plugins/linux/amd64/cpa-prometheus-v<version>.so`. Restart if you get a loaded-plugin lock. Current GHA matrix: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64. No Windows zip.
+Release zips are `cpa-prometheus_<version>_<goos>_<goarch>.zip` with the library at the zip root (`cpa-prometheus.so` / `.dylib` / `.dll`) plus a combined `checksums.txt`. CPA installs linux/amd64 as `plugins/linux/amd64/cpa-prometheus-v<version>.so`. Restart if you get a loaded-plugin lock. Current GHA matrix: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64. Windows is cross-built with mingw-w64 and checked only for zip layout — it has not been run on a Windows host.
 
 Store Install uses the GitHub API and 403s when unauthenticated rate limits kick in. Download the zip, check the sha256, and copy the library into the plugins directory yourself.
 
@@ -162,7 +162,7 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.2.0 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.2.1 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License

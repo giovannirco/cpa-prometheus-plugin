@@ -47,6 +47,34 @@ func TestValidateLinuxZipRejectsNestedPath(t *testing.T) {
 	}
 }
 
+func TestValidatePlatformZipEveryShippedTarget(t *testing.T) {
+	for _, tc := range []struct{ goos, ext string }{
+		{"linux", ".so"},
+		{"darwin", ".dylib"},
+		{"windows", ".dll"},
+	} {
+		zipData, err := ZipRootLibrary("cpa-prometheus", tc.goos, []byte("fake-lib"))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.goos, err)
+		}
+		if got := LibraryExt(tc.goos); got != tc.ext {
+			t.Fatalf("%s ext = %q, want %q", tc.goos, got, tc.ext)
+		}
+		if err := ValidatePlatformZip(zipData, "cpa-prometheus", tc.goos); err != nil {
+			t.Fatalf("%s: %v", tc.goos, err)
+		}
+		// A zip built for one OS must not pass validation for another.
+		for _, other := range []string{"linux", "darwin", "windows"} {
+			if other == tc.goos {
+				continue
+			}
+			if err := ValidatePlatformZip(zipData, "cpa-prometheus", other); err == nil {
+				t.Fatalf("%s zip accepted as %s", tc.goos, other)
+			}
+		}
+	}
+}
+
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
