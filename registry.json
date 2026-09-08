@@ -4,7 +4,7 @@
     {
       "id": "cpa-prometheus",
       "name": "CPA Prometheus",
-      "description": "Prometheus metrics for CLIProxyAPI usage, Management Center dashboard counts, and provider quota windows (Claude, Codex, Antigravity, Kimi, xAI).",
+      "description": "Prometheus metrics for CLIProxyAPI usage, Management Center dashboard counts, and provider quota windows (Claude, Codex, Antigravity, Kimi, xAI). Served only on the management-authenticated route GET /v0/management/plugins/cpa-prometheus/metrics.",
       "author": "giovannirco",
       "repository": "https://github.com/giovannirco/cpa-prometheus-plugin",
       "logo": "https://raw.githubusercontent.com/giovannirco/cpa-prometheus-plugin/main/logo.png",

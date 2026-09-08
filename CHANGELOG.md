@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-09-08
+
+- **Breaking:** the resource metrics endpoint is removed. `GET /v0/resource/plugins/cpa-prometheus/metrics` is no longer registered or served, and `management.register` advertises no `resources` entry. CPA resource routes are not management-authenticated and store policy limits them to static deployed assets ([store PR #111 review](https://github.com/router-for-me/CLIProxyAPI-Plugins-Store/pull/111), repo issue #1).
+- **Breaking:** the `public-metrics` and `scrape-token` config keys are removed, along with the plugin-side scrape auth they guarded. Leftover keys in `config.yaml` are ignored rather than rejected.
+- Metrics are served exclusively from `GET /v0/management/plugins/cpa-prometheus/metrics`, which CPA protects with the management key. Scrape with `bearer_token` / `bearerTokenSecret` holding that key.
+- No metric names, labels, or values changed; the Grafana dashboard needs only a scrape-path update.
+
 ## 0.1.8 — 2026-08-30
 
 - Resource `GET /v0/resource/plugins/cpa-prometheus/metrics` is **closed by default** (401). Matches CPA store guidance: resource routes are not management-authenticated.

@@ -48,24 +48,14 @@ func TestParseRejectsOversizedYAML(t *testing.T) {
 	}
 }
 
-func TestParsePublicMetricsDefaultFalse(t *testing.T) {
-	cfg, err := Parse(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.PublicMetrics {
-		t.Fatal("public-metrics must default false")
-	}
-}
-
-func TestParsePublicMetricsTrue(t *testing.T) {
-	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\n")})
+func TestParseIgnoresRetiredScrapeAuthKeys(t *testing.T) {
+	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\nscrape-token: s3cret\nquota-refresh-interval: 10m\n")})
 	cfg, err := Parse(payload)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("retired keys must not break config parsing: %v", err)
 	}
-	if !cfg.PublicMetrics {
-		t.Fatal("public-metrics true")
+	if cfg.QuotaRefreshInterval != 10*time.Minute {
+		t.Fatalf("interval = %v, want 10m", cfg.QuotaRefreshInterval)
 	}
 }
 

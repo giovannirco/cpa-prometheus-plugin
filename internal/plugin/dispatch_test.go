@@ -51,70 +51,63 @@ func TestUsageHandleWritesLastRequestTimestamp(t *testing.T) {
 	}
 }
 
-func TestResourceMetricsDeniedByDefault(t *testing.T) {
+func TestResourceMetricsPathIsNotServed(t *testing.T) {
 	rt := NewRuntime(nil)
 	_ = rt.Handle("plugin.register", nil)
-	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/resource/plugins/cpa-prometheus/metrics"}`))
-	var env envelope
-	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
-		t.Fatalf("%s", raw)
-	}
-	var resp managementResponse
-	if err := json.Unmarshal(env.Result, &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 401 {
-		t.Fatalf("resource metrics default status %d, want 401", resp.StatusCode)
+	for _, path := range []string{
+		"/v0/resource/plugins/cpa-prometheus/metrics",
+		"/v0/resource/plugins/cpa-prometheus/metrics/",
+		"/v0/RESOURCE/plugins/cpa-prometheus/metrics",
+	} {
+		raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"`+path+`"}`))
+		var env envelope
+		if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+			t.Fatalf("%s", raw)
+		}
+		var resp managementResponse
+		if err := json.Unmarshal(env.Result, &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != 404 {
+			t.Fatalf("%s status %d, want 404", path, resp.StatusCode)
+		}
+		if strings.Contains(string(resp.Body), "cliproxy_") {
+			t.Fatalf("%s leaked metrics: %s", path, resp.Body)
+		}
 	}
 }
 
-func TestResourceMetricsPublicOptIn(t *testing.T) {
+func TestManagementRegisterAdvertisesNoResources(t *testing.T) {
 	rt := NewRuntime(nil)
-	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\n")})
-	_ = rt.Handle("plugin.register", payload)
-	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/resource/plugins/cpa-prometheus/metrics"}`))
+	raw := rt.Handle("management.register", nil)
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
 		t.Fatalf("%s", raw)
 	}
-	var resp managementResponse
-	if err := json.Unmarshal(env.Result, &resp); err != nil {
+	var reg struct {
+		Routes    []map[string]string `json:"routes"`
+		Resources []map[string]string `json:"resources"`
+	}
+	if err := json.Unmarshal(env.Result, &reg); err != nil {
 		t.Fatal(err)
 	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("public-metrics status %d, want 200", resp.StatusCode)
+	if len(reg.Resources) != 0 {
+		t.Fatalf("plugin must register no resource routes, got %v", reg.Resources)
+	}
+	if len(reg.Routes) != 1 || reg.Routes[0]["Path"] != metricsManagePath {
+		t.Fatalf("routes = %v, want only %s", reg.Routes, metricsManagePath)
 	}
 }
 
-func TestResourceMetricsScrapeToken(t *testing.T) {
+func TestRegisterExposesNoScrapeAuthConfigFields(t *testing.T) {
 	rt := NewRuntime(nil)
-	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("scrape-token: s3cret\n")})
-	_ = rt.Handle("plugin.register", payload)
-	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/resource/plugins/cpa-prometheus/metrics"}`))
-	var env envelope
-	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
-		t.Fatalf("%s", raw)
-	}
-	var resp managementResponse
-	if err := json.Unmarshal(env.Result, &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 401 {
-		t.Fatalf("missing token status %d, want 401", resp.StatusCode)
-	}
-	raw = rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/resource/plugins/cpa-prometheus/metrics","Headers":{"Authorization":["Bearer s3cret"]}}`))
-	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
-		t.Fatalf("%s", raw)
-	}
-	if err := json.Unmarshal(env.Result, &resp); err != nil {
-		t.Fatal(err)
-	}
-	if resp.StatusCode != 200 {
-		t.Fatalf("bearer token status %d, want 200", resp.StatusCode)
+	raw := rt.Handle("plugin.register", nil)
+	if strings.Contains(string(raw), "public-metrics") || strings.Contains(string(raw), "scrape-token") {
+		t.Fatalf("register metadata still advertises resource scrape auth: %s", raw)
 	}
 }
 
-func TestManagementMetricsStayOpenWithoutPublicFlag(t *testing.T) {
+func TestManagementMetricsServedOnManagementRoute(t *testing.T) {
 	rt := NewRuntime(nil)
 	_ = rt.Handle("plugin.register", nil)
 	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/management/plugins/cpa-prometheus/metrics"}`))
@@ -133,8 +126,7 @@ func TestManagementMetricsStayOpenWithoutPublicFlag(t *testing.T) {
 
 func TestManagementHandleServesRealMetricsHandler(t *testing.T) {
 	rt := NewRuntime(nil)
-	payload, _ := json.Marshal(map[string]any{"config_yaml": []byte("public-metrics: true\n")})
-	_ = rt.Handle("plugin.register", payload)
+	_ = rt.Handle("plugin.register", nil)
 	_ = rt.Handle("usage.handle", []byte(`{"Provider":"claude","Model":"claude-sonnet-4","Latency":800000000,"Failed":true,"Failure":{"StatusCode":429},"Detail":{"InputTokens":1,"TotalTokens":1}}`))
 	rt.Collector().ApplyQuota([]quota.Account{{
 		Provider: "claude", AuthIndex: "a1", Supported: true,
@@ -143,7 +135,7 @@ func TestManagementHandleServesRealMetricsHandler(t *testing.T) {
 	}})
 	rt.Collector().ApplyCredentials([]quota.Credential{{Provider: "claude", Status: "active"}})
 	rt.Collector().SetPollInterval(5 * time.Minute)
-	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/resource/plugins/cpa-prometheus/metrics"}`))
+	raw := rt.Handle("management.handle", []byte(`{"Method":"GET","Path":"/v0/management/plugins/cpa-prometheus/metrics"}`))
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
 		t.Fatalf("env=%s", raw)

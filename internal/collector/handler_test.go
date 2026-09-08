@@ -13,7 +13,6 @@ import (
 
 func TestMetricsHandlerPrometheusText(t *testing.T) {
 	c := New("0.1.0")
-	c.SetPublicMetrics(true)
 	c.ObserveUsage(UsageRecord{
 		Provider: "codex",
 		Model:    "gpt-5.5",
@@ -36,7 +35,7 @@ func TestMetricsHandlerPrometheusText(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	c.MetricsHandler().ServeHTTP(rec, req)
+	c.ManagementMetricsHandler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
@@ -68,45 +67,5 @@ func TestMetricsHandlerPrometheusText(t *testing.T) {
 		if !strings.Contains(text, name) {
 			t.Fatalf("handler body missing %s:\n%s", name, text)
 		}
-	}
-}
-
-func TestMetricsHandlerDeniesAnonymousWhenNotPublic(t *testing.T) {
-	c := New("0.1.0")
-	rec := httptest.NewRecorder()
-	c.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status %d, want 401", rec.Code)
-	}
-}
-
-func TestMetricsHandlerHonorsScrapeToken(t *testing.T) {
-	c := New("0.1.0")
-	c.SetScrapeToken("s3cret")
-	rec := httptest.NewRecorder()
-	c.MetricsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status %d, want 401", rec.Code)
-	}
-	rec = httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	req.Header.Set("Authorization", "Bearer s3cret")
-	c.MetricsHandler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d, want 200", rec.Code)
-	}
-	rec = httptest.NewRecorder()
-	bad := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	bad.Header.Set("Authorization", "Bearer wrong")
-	c.MetricsHandler().ServeHTTP(rec, bad)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("wrong token status %d, want 401", rec.Code)
-	}
-	rec = httptest.NewRecorder()
-	lower := httptest.NewRequest(http.MethodGet, "/metrics", nil)
-	lower.Header.Set("Authorization", "bearer s3cret")
-	c.MetricsHandler().ServeHTTP(rec, lower)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("bearer prefix should be case-insensitive, status %d", rec.Code)
 	}
 }

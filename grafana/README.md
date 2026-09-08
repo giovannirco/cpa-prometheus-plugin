@@ -17,10 +17,10 @@ python3 grafana/build.py
 Scrape must already be in Prometheus / Mimir / Alloy:
 
 ```
-GET /v0/resource/plugins/cpa-prometheus/metrics
+GET /v0/management/plugins/cpa-prometheus/metrics
 ```
 
-That resource path is **401 by default** (v0.1.8+). Either set `public-metrics: true` for an open LAN scrape, or set `scrape-token` and scrape with `Authorization: Bearer` / `X-Scrape-Token`. If the token is set, it wins even when `public-metrics` is true. Management `GET /v0/management/plugins/cpa-prometheus/metrics` uses the CPA management key.
+Scrape it with the CPA management key as `Authorization: Bearer`. Since v0.2.0 that management route is the only metrics endpoint; the old resource path (`/v0/resource/plugins/cpa-prometheus/metrics`, `public-metrics`, `scrape-token`) is gone.
 
 Prefix `cliproxy_*`. Every series has `plugin_id="cpa-prometheus"`.
 

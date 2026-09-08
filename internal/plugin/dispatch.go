@@ -21,11 +21,10 @@ const (
 	PluginLogo    = "https://raw.githubusercontent.com/giovannirco/cpa-prometheus-plugin/main/logo.png"
 	schemaVersion = 1
 
-	metricsResourcePath = "/metrics"
-	metricsManagePath   = "/plugins/cpa-prometheus/metrics"
+	metricsManagePath = "/plugins/cpa-prometheus/metrics"
 )
 
-var PluginVersion = "0.1.8"
+var PluginVersion = "0.2.0"
 
 type envelope struct {
 	OK     bool            `json:"ok"`
@@ -67,11 +66,6 @@ func (rt *Runtime) Handle(method string, request []byte) []byte {
 				"Path":        metricsManagePath,
 				"Description": "Prometheus text exposition of CPA usage, dashboard counts, and quota gauges.",
 			}},
-			"resources": []map[string]string{{
-				"Path":        metricsResourcePath,
-				"Menu":        "Prometheus",
-				"Description": "Prometheus metrics for Alloy scrape. Path /v0/resource/plugins/cpa-prometheus/metrics.",
-			}},
 		})
 	case "management.handle":
 		return rt.handleManagement(request)
@@ -90,8 +84,6 @@ func (rt *Runtime) register(request []byte) []byte {
 	if rt.col == nil {
 		rt.col = collector.New(PluginVersion)
 	}
-	rt.col.SetScrapeToken(cfg.ScrapeToken)
-	rt.col.SetPublicMetrics(cfg.PublicMetrics)
 	rt.col.SetPollInterval(cfg.QuotaRefreshInterval)
 	host := rt.host
 	rt.mu.Unlock()
@@ -108,8 +100,6 @@ func (rt *Runtime) register(request []byte) []byte {
 				{"Name": "quota-refresh-interval", "Type": "string", "Description": "Quota poll interval. Default 5m."},
 				{"Name": "request-timeout", "Type": "string", "Description": "Per-account quota HTTP timeout. Default 20s."},
 				{"Name": "include-disabled", "Type": "boolean", "Description": "Include disabled credentials in quota scans."},
-				{"Name": "public-metrics", "Type": "boolean", "Description": "If true, unauthenticated resource GET /metrics is allowed. Default false."},
-				{"Name": "scrape-token", "Type": "string", "Description": "If set, resource /metrics requires Authorization: Bearer or X-Scrape-Token."},
 			},
 		},
 		"capabilities": map[string]bool{
@@ -247,17 +237,13 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 		return okJSON(managementResponse{StatusCode: 500, Body: []byte("collector unavailable")})
 	}
 	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodGet, metricsResourcePath, nil)
+	httpReq := httptest.NewRequest(http.MethodGet, metricsManagePath, nil)
 	for k, vs := range req.Headers {
 		for _, v := range vs {
 			httpReq.Header.Add(k, v)
 		}
 	}
-	handler := col.ManagementMetricsHandler()
-	if isResourceMetricsPath(req.Path) {
-		handler = col.MetricsHandler()
-	}
-	handler.ServeHTTP(rec, httpReq)
+	col.ManagementMetricsHandler().ServeHTTP(rec, httpReq)
 	headers := map[string][]string{}
 	for k, vs := range rec.Header() {
 		headers[k] = vs
@@ -265,14 +251,15 @@ func (rt *Runtime) handleManagement(request []byte) []byte {
 	return okJSON(managementResponse{StatusCode: rec.Code, Headers: headers, Body: rec.Body.Bytes()})
 }
 
+// isMetricsPath accepts only the authenticated management metrics route.
+// Resource routes (/v0/resource/plugins/...) are static-only by store policy
+// and this plugin no longer registers or serves anything there.
 func isMetricsPath(path string) bool {
 	path = strings.TrimRight(path, "/")
-	return strings.HasSuffix(path, metricsResourcePath) || strings.HasSuffix(path, metricsManagePath)
-}
-
-func isResourceMetricsPath(path string) bool {
-	p := strings.ToLower(strings.TrimRight(path, "/"))
-	return strings.Contains(p, "/resource/")
+	if strings.Contains(strings.ToLower(path), "/resource/") {
+		return false
+	}
+	return strings.HasSuffix(path, metricsManagePath)
 }
 
 func okJSON(v any) []byte {

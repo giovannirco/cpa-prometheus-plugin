@@ -775,7 +775,7 @@ def dashboard() -> dict:
         "title": TITLE,
         "description": (
             "cpa-prometheus plugin: quota windows, credentials (email), and usage.handle traffic. "
-            "Scrape GET /v0/resource/plugins/cpa-prometheus/metrics. Host GET /metrics stays 404. "
+            "Scrape GET /v0/management/plugins/cpa-prometheus/metrics with the CPA management key. Host GET /metrics stays 404. "
             "https://github.com/giovannirco/cpa-prometheus-plugin"
         ),
         "tags": ["cliproxyapi", "cpa-prometheus", "quota", "usage"],
