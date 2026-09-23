@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3 — 2026-09-23
+
+Cursor quota is collected from `api2.cursor.sh` `GetCurrentPeriodUsage` and `GetSandUsageStatus`. Windows are `cursor_models`, `other_models`, `included`, and `grok_bot`. A weekly-call failure keeps the plan windows.
+
 ## 0.2.2 — 2026-09-08
 
 Security and robustness pass over the whole plugin (Trail of Bits review skills: sharp-edges, semgrep, supply-chain, fp-check). No metric names, labels, or values changed.

@@ -27,6 +27,8 @@ func ParseWindows(provider string, body []byte) []Window {
 		return parseKimi(payload)
 	case "xai":
 		return parseXAI(payload)
+	case "cursor":
+		return parseCursor(body, nil)
 	case "gemini", "gemini-cli":
 		return parseGemini(payload)
 	default:
@@ -54,7 +56,7 @@ func NormalizeProvider(provider string) string {
 
 func SupportedProvider(provider string) bool {
 	switch NormalizeProvider(provider) {
-	case "claude", "codex", "antigravity", "kimi", "xai", "gemini-cli":
+	case "claude", "codex", "antigravity", "kimi", "xai", "gemini-cli", "cursor":
 		return true
 	default:
 		return false
@@ -335,6 +337,44 @@ func configValue(config map[string]any, key string) any {
 		return nil
 	}
 	return config[key]
+}
+
+func parseCursor(periodBody, sandBody []byte) []Window {
+	var period map[string]any
+	if len(periodBody) > 0 {
+		_ = json.Unmarshal(periodBody, &period)
+	}
+	plan, _ := period["planUsage"].(map[string]any)
+	reset := unixMillis(period["billingCycleEnd"])
+	out := make([]Window, 0, 4)
+	if plan != nil {
+		out = append(out, cursorWindow("cursor_models", plan["autoPercentUsed"], reset))
+		out = append(out, cursorWindow("other_models", plan["apiPercentUsed"], reset))
+		out = append(out, cursorWindow("included", plan["totalPercentUsed"], reset))
+	}
+	var sand map[string]any
+	if len(sandBody) > 0 && json.Unmarshal(sandBody, &sand) == nil {
+		if _, ok := sand["usagePercent"]; ok {
+			out = append(out, cursorWindow("grok_bot", sand["usagePercent"], unixTime(sand["nextResetTimestampUtc"])))
+		}
+	}
+	return compactWindows(out)
+}
+
+func cursorWindow(id string, percent any, reset int64) Window {
+	if percent == nil {
+		return Window{}
+	}
+	used := percentRatio(percent)
+	return Window{ID: id, UsedRatio: used, RemainingRatio: inverse(used), ResetUnix: reset}
+}
+
+func unixMillis(v any) int64 {
+	n := floatNumber(v)
+	if n > 1e12 {
+		return int64(n / 1000)
+	}
+	return unixTime(v)
 }
 
 func parseGeneric(payload map[string]any) []Window {

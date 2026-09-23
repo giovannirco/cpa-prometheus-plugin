@@ -158,6 +158,9 @@ func fetchOne(host Host, file AuthFile) Account {
 		account.Error = "credential_incomplete"
 		return account
 	}
+	if provider == "cursor" {
+		return fetchCursor(host, account, token)
+	}
 	req, err := providerRequest(provider, token, raw)
 	if err != nil {
 		account.Error = err.Error()
@@ -236,6 +239,8 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 		headers["x-grok-client-version"] = []string{"0.2.91"}
 		headers["User-Agent"] = []string{"grok-shell/0.2.91"}
 		return quotaHTTPRequest(http.MethodGet, "https://cli-chat-proxy.grok.com/v1/billing?format=credits", headers, nil)
+	case "cursor":
+		return cursorDashboardRequest(token, "GetCurrentPeriodUsage")
 	case "gemini-cli":
 		headers["Content-Type"] = []string{"application/json"}
 		headers["User-Agent"] = []string{"google-cloud-sdk"}
@@ -247,6 +252,46 @@ func providerRequest(provider, token string, raw []byte) (HTTPRequest, error) {
 	default:
 		return HTTPRequest{}, fmt.Errorf("unsupported")
 	}
+}
+
+func fetchCursor(host Host, account Account, token string) Account {
+	period, err := cursorDashboard(host, token, "GetCurrentPeriodUsage")
+	if err != nil {
+		account.Error = err.Error()
+		return account
+	}
+	sand, _ := cursorDashboard(host, token, "GetSandUsageStatus")
+	account.Windows = parseCursor(period, sand)
+	account.FetchedAt = time.Now().UTC()
+	return account
+}
+
+func cursorDashboard(host Host, token, method string) ([]byte, error) {
+	req, err := cursorDashboardRequest(token, method)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := host.DoHTTP(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("upstream HTTP %d", resp.StatusCode)
+	}
+	return resp.Body, nil
+}
+
+func cursorDashboardRequest(token, method string) (HTTPRequest, error) {
+	headers := map[string][]string{
+		"Authorization":            {"Bearer " + token},
+		"Accept":                   {"application/json"},
+		"Content-Type":             {"application/json"},
+		"connect-protocol-version": {"1"},
+		"x-ghost-mode":             {"true"},
+		"x-cursor-client-type":     {"cli"},
+		"x-cursor-client-version":  {"cli-2026.09.18-9a7762b"},
+	}
+	return quotaHTTPRequest(http.MethodPost, "https://api2.cursor.sh/aiserver.v1.DashboardService/"+method, headers, []byte("{}"))
 }
 
 func resetCreditsRequest(provider, token string, raw []byte) (HTTPRequest, error) {
@@ -288,7 +333,7 @@ func checkQuotaURL(raw string) error {
 		return fmt.Errorf("unsupported")
 	}
 	switch strings.ToLower(u.Hostname()) {
-	case "api.anthropic.com", "chatgpt.com", "cloudcode-pa.googleapis.com", "api.kimi.com", "cli-chat-proxy.grok.com":
+	case "api.anthropic.com", "chatgpt.com", "cloudcode-pa.googleapis.com", "api.kimi.com", "cli-chat-proxy.grok.com", "api2.cursor.sh":
 		return nil
 	default:
 		return fmt.Errorf("unsupported")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeHost struct {
@@ -35,12 +36,12 @@ func TestPollFetchesClaudeAndIsolates429(t *testing.T) {
 		files: []AuthFile{
 			{AuthIndex: "ok", Provider: "claude", Status: "active"},
 			{AuthIndex: "rl", Provider: "claude", Status: "active"},
-			{AuthIndex: "cursor", Provider: "cursor", Status: "active"},
+			{AuthIndex: "mystery", Provider: "mystery", Status: "active"},
 		},
 		json: map[string][]byte{
-			"ok":     []byte(`{"access_token":"tok-ok"}`),
-			"rl":     []byte(`{"access_token":"tok-rl"}`),
-			"cursor": []byte(`{"access_token":"tok-c"}`),
+			"ok":      []byte(`{"access_token":"tok-ok"}`),
+			"rl":      []byte(`{"access_token":"tok-rl"}`),
+			"mystery": []byte(`{"access_token":"tok-c"}`),
 		},
 		http: func(req HTTPRequest) (HTTPResponse, error) {
 			if strings.Contains(strings.Join(req.Headers["Authorization"], ""), "tok-rl") {
@@ -63,7 +64,7 @@ func TestPollFetchesClaudeAndIsolates429(t *testing.T) {
 			okAcc = &accounts[i]
 		case "rl":
 			rlAcc = &accounts[i]
-		case "cursor":
+		case "mystery":
 			cursorAcc = &accounts[i]
 		}
 	}
@@ -138,7 +139,7 @@ func TestPollSkipsDisabledUnlessConfigured(t *testing.T) {
 
 func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
 	raw := []byte(`{"access_token":"tok","account_id":"acct","project_id":"proj"}`)
-	for _, provider := range []string{"claude", "codex", "antigravity", "kimi", "xai", "gemini-cli"} {
+	for _, provider := range []string{"claude", "codex", "antigravity", "kimi", "xai", "gemini-cli", "cursor"} {
 		req, err := providerRequest(provider, "tok", raw)
 		if err != nil {
 			t.Fatalf("%s: %v", provider, err)
@@ -150,7 +151,7 @@ func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
 			t.Fatalf("%s not https: %s", provider, req.URL)
 		}
 	}
-	if _, err := providerRequest("cursor", "tok", raw); err == nil {
+	if _, err := providerRequest("mystery", "tok", raw); err == nil {
 		t.Fatal("unknown provider should fail")
 	}
 	if err := checkQuotaURL("http://api.anthropic.com/api/oauth/usage"); err == nil {
@@ -161,6 +162,47 @@ func TestProviderRequestUsesFixedHTTPSAllowlist(t *testing.T) {
 	}
 	if err := checkQuotaURL("https://user:pass@api.anthropic.com/api/oauth/usage"); err == nil {
 		t.Fatal("userinfo must be rejected")
+	}
+}
+
+func TestPollCursorReadsPlanWindowsAndGrokBot(t *testing.T) {
+	host := &fakeHost{
+		files: []AuthFile{{AuthIndex: "c1", Provider: "cursor", Status: "active"}},
+		json:  map[string][]byte{"c1": []byte(`{"access_token":"tok-cursor"}`)},
+		http: func(req HTTPRequest) (HTTPResponse, error) {
+			if strings.Contains(req.Headers["Authorization"][0], "tok-cursor") == false {
+				t.Fatal("token missing")
+			}
+			switch {
+			case strings.HasSuffix(req.URL, "/GetCurrentPeriodUsage"):
+				return HTTPResponse{StatusCode: 200, Body: []byte(`{"billingCycleEnd":"1791750097000","planUsage":{"autoPercentUsed":0.001,"apiPercentUsed":66.14,"totalPercentUsed":2.13}}`)}, nil
+			case strings.HasSuffix(req.URL, "/GetSandUsageStatus"):
+				return HTTPResponse{StatusCode: 200, Body: []byte(`{"usagePercent":6.93,"nextResetTimestampUtc":"2026-09-22T20:23:06.799Z"}`)}, nil
+			default:
+				t.Fatalf("unexpected %s", req.URL)
+				return HTTPResponse{}, nil
+			}
+		},
+	}
+	accounts, _, err := Poll(host, DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 1 || !accounts[0].Supported || accounts[0].Error != "" {
+		t.Fatalf("account %#v", accounts)
+	}
+	byID := map[string]Window{}
+	for _, window := range accounts[0].Windows {
+		byID[window.ID] = window
+	}
+	other := byID["other_models"]
+	if other.UsedRatio < 0.66 || other.UsedRatio > 0.67 || other.ResetUnix != 1791750097 {
+		t.Fatalf("other models %#v", other)
+	}
+	grok := byID["grok_bot"]
+	wantReset := time.Date(2026, 9, 22, 20, 23, 6, 0, time.UTC).Unix()
+	if grok.UsedRatio < 0.069 || grok.UsedRatio > 0.07 || grok.ResetUnix != wantReset {
+		t.Fatalf("grok bot %#v want reset %d", grok, wantReset)
 	}
 }
 
