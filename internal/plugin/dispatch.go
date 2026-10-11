@@ -59,6 +59,12 @@ func (rt *Runtime) Handle(method string, request []byte) []byte {
 		return okJSON(map[string]any{})
 	case "usage.handle":
 		return rt.handleUsage(request)
+	case "request.complete":
+		return rt.handleCompletion(request)
+	case "request.intercept_before":
+		return rt.handleIntercept(request, true)
+	case "request.intercept_after":
+		return rt.handleIntercept(request, false)
 	case "management.register":
 		return okJSON(map[string]any{
 			"routes": []map[string]string{{
@@ -99,11 +105,14 @@ func (rt *Runtime) register(request []byte) []byte {
 			"ConfigFields": []map[string]string{
 				{"Name": "quota-refresh-interval", "Type": "string", "Description": "Quota poll interval. Default 5m."},
 				{"Name": "include-disabled", "Type": "boolean", "Description": "Include disabled credentials in quota scans."},
+				{"Name": "track-in-flight", "Type": "boolean", "Description": "Count in-flight requests and credential attempts via the request interceptor. Off by default."},
 			},
 		},
 		"capabilities": map[string]bool{
-			"usage_plugin":   true,
-			"management_api": true,
+			"usage_plugin":             true,
+			"management_api":           true,
+			"request_lifecycle_plugin": true,
+			"request_interceptor":      cfg.TrackInFlight,
 		},
 	})
 }
@@ -155,6 +164,8 @@ type usageJSON struct {
 	Detail      usageDetail  `json:"Detail"`
 	APIKey      string       `json:"APIKey"`
 	RequestedAt time.Time    `json:"RequestedAt"`
+	Stream      bool         `json:"Stream"`
+	TTFT        int64        `json:"TTFT"`
 }
 
 type usageFailure struct {
@@ -196,6 +207,8 @@ func (rt *Runtime) handleUsage(request []byte) []byte {
 		Latency:           time.Duration(rec.Latency),
 		Failed:            rec.Failed,
 		FailureStatusCode: rec.Failure.StatusCode,
+		Stream:            rec.Stream,
+		TTFT:              time.Duration(rec.TTFT),
 		Detail: collector.TokenDetail{
 			InputTokens:         rec.Detail.InputTokens,
 			OutputTokens:        rec.Detail.OutputTokens,
@@ -207,6 +220,65 @@ func (rt *Runtime) handleUsage(request []byte) []byte {
 		},
 	})
 	return okJSON(map[string]any{"stored": true})
+}
+
+type completionJSON struct {
+	RequestID      string    `json:"RequestID"`
+	SourceFormat   string    `json:"SourceFormat"`
+	Model          string    `json:"Model"`
+	RequestedModel string    `json:"RequestedModel"`
+	Stream         bool      `json:"Stream"`
+	Outcome        string    `json:"Outcome"`
+	StatusCode     int       `json:"StatusCode"`
+	StartedAt      time.Time `json:"StartedAt"`
+	CompletedAt    time.Time `json:"CompletedAt"`
+}
+
+// handleCompletion records the terminal outcome CPA reports for every client
+// request, including ones rejected or canceled before reaching an upstream.
+func (rt *Runtime) handleCompletion(request []byte) []byte {
+	var rec completionJSON
+	if len(request) == 0 || json.Unmarshal(request, &rec) != nil {
+		return okJSON(map[string]any{"ignored": true})
+	}
+	col := rt.Collector()
+	if col == nil {
+		return okJSON(map[string]any{"ignored": true})
+	}
+	col.ObserveCompletion(collector.CompletionRecord{
+		RequestID:      rec.RequestID,
+		SourceFormat:   rec.SourceFormat,
+		RequestedModel: rec.RequestedModel,
+		Model:          rec.Model,
+		Stream:         rec.Stream,
+		Outcome:        rec.Outcome,
+		StatusCode:     rec.StatusCode,
+		StartedAt:      rec.StartedAt,
+		CompletedAt:    rec.CompletedAt,
+	})
+	return okJSON(map[string]any{"stored": true})
+}
+
+// interceptJSON decodes only the identifiers; the request body is ignored.
+type interceptJSON struct {
+	RequestID    string `json:"RequestID"`
+	SourceFormat string `json:"SourceFormat"`
+}
+
+// handleIntercept observes a request without changing it. An empty result
+// keeps the current headers and body, and the host fails open if this errors.
+func (rt *Runtime) handleIntercept(request []byte, beforeAuth bool) []byte {
+	var req interceptJSON
+	if len(request) > 0 && json.Unmarshal(request, &req) == nil {
+		if col := rt.Collector(); col != nil {
+			if beforeAuth {
+				col.AdmitRequest(req.RequestID, req.SourceFormat)
+			} else {
+				col.RecordAttempt(req.RequestID)
+			}
+		}
+	}
+	return okJSON(map[string]any{})
 }
 
 type managementRequest struct {

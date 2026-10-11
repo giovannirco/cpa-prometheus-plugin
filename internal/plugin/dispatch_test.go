@@ -219,3 +219,74 @@ func TestRegisterDefaultIntervalFiveMinutes(t *testing.T) {
 		t.Fatalf("expected 300s default interval:\n%s", text)
 	}
 }
+
+func TestRequestCompleteRecordsClientOutcome(t *testing.T) {
+	rt := NewRuntime(nil)
+	_ = rt.Handle("plugin.register", nil)
+	raw := rt.Handle("request.complete", []byte(`{"RequestID":"r1","SourceFormat":"openai","RequestedModel":"gpt-6","Stream":true,"Outcome":"canceled","StatusCode":0,"StartedAt":"2026-10-10T12:00:00Z","CompletedAt":"2026-10-10T12:00:03Z"}`))
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+		t.Fatalf("env=%s", raw)
+	}
+	text, err := rt.Collector().Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `cliproxy_client_requests_total{code="none",format="openai",model="gpt-6",outcome="canceled",plugin_id="cpa-prometheus",stream="true"} 1`
+	if !strings.Contains(text, want) {
+		t.Fatalf("missing %q:\n%s", want, text)
+	}
+}
+
+func TestInterceptorIsOptInAndPassesRequestsThrough(t *testing.T) {
+	rt := NewRuntime(nil)
+	capabilities := func(raw []byte) map[string]bool {
+		t.Helper()
+		var env struct {
+			OK     bool `json:"ok"`
+			Result struct {
+				Capabilities map[string]bool `json:"capabilities"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+			t.Fatalf("register env=%s", raw)
+		}
+		return env.Result.Capabilities
+	}
+	caps := capabilities(rt.Handle("plugin.register", nil))
+	if !caps["request_lifecycle_plugin"] || caps["request_interceptor"] {
+		t.Fatalf("default capabilities = %v, want lifecycle on and interceptor off", caps)
+	}
+	caps = capabilities(rt.Handle("plugin.reconfigure", []byte(`{"config_yaml":"track-in-flight: true\n"}`)))
+	if !caps["request_interceptor"] {
+		t.Fatalf("track-in-flight did not enable the interceptor: %v", caps)
+	}
+
+	raw := rt.Handle("request.intercept_before", []byte(`{"RequestID":"r1","SourceFormat":"claude","Body":"eyJhIjoxfQ=="}`))
+	var env struct {
+		OK     bool           `json:"ok"`
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil || !env.OK || len(env.Result) != 0 {
+		t.Fatalf("interceptor must return an empty passthrough result, got %s", raw)
+	}
+	text, _ := rt.Collector().Gather()
+	if !strings.Contains(text, `cliproxy_client_requests_in_flight{format="claude",plugin_id="cpa-prometheus"} 1`) {
+		t.Fatalf("request not admitted:\n%s", text)
+	}
+	// Malformed payloads are ignored, never surfaced as errors that could fuse the plugin.
+	raw = rt.Handle("request.intercept_after", []byte(`not json`))
+	if err := json.Unmarshal(raw, &env); err != nil || !env.OK {
+		t.Fatalf("malformed intercept returned %s", raw)
+	}
+}
+
+func TestUsageHandleParsesStreamTiming(t *testing.T) {
+	rt := NewRuntime(nil)
+	_ = rt.Handle("plugin.register", nil)
+	_ = rt.Handle("usage.handle", []byte(`{"Provider":"codex","Model":"gpt-6","Stream":true,"TTFT":500000000,"Latency":2500000000,"Detail":{"OutputTokens":100}}`))
+	text, _ := rt.Collector().Gather()
+	if !strings.Contains(text, `cliproxy_ttft_seconds_count{model="gpt-6",plugin_id="cpa-prometheus",provider="codex"} 1`) {
+		t.Fatalf("ttft not recorded from usage.handle:\n%s", text)
+	}
+}

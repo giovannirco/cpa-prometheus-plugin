@@ -59,6 +59,28 @@ From each completed proxy request (`usage.handle`):
 
 CPA has no host model-list callback. `cliproxy_model_available` is emitted only when `host.auth.get_runtime` includes `model_states`.
 
+Streaming timing, also from `usage.handle` (successful streaming requests only):
+
+| Name | Type |
+|------|------|
+| `cliproxy_ttft_seconds` | histogram, time to first token, by `provider`, `model` |
+| `cliproxy_output_tokens_per_second` | histogram, output tokens / (latency − TTFT), by `provider`, `model` |
+
+Client side, from `request.complete`. `usage.handle` sees each upstream attempt; `request.complete` sees what the client got back, once per request, after CPA's credential retries:
+
+| Name | Type |
+|------|------|
+| `cliproxy_client_requests_total` | counter by `format`, `model`, `stream`, `outcome` (`succeeded`, `failed`, `rejected`, `canceled`), `code` (`none` when the client disconnected) |
+| `cliproxy_client_request_duration_seconds` | histogram, end-to-end latency including retries. Buckets go to 600s; `cliproxy_request_duration_seconds` keeps `DefBuckets` (max 10s) for compatibility |
+| `cliproxy_client_requests_in_flight` | gauge by `format`. Needs `track-in-flight: true` |
+| `cliproxy_client_request_attempts` | histogram, credential attempts per request; above 1 means CPA retried or switched credentials. Needs `track-in-flight: true` |
+
+`model` here is what the client asked for, so it is capped at 256 distinct values; later new values become `model="other"`. `GET /v1/models` also reaches `request.complete` and is skipped.
+
+Requests CPA refuses before execution starts (unknown model, malformed body) never reach `request.complete` and are not counted on the client side.
+
+`track-in-flight` registers a request interceptor. CPA calls interceptors synchronously on the request path with the full request body, so it is off by default. The plugin only reads the request ID and returns the request unchanged; if a call fails (for example a body over the plugin's 1 MiB ABI limit), CPA continues with the request as is, and that request is simply not counted as in flight.
+
 From `host.auth.list`, refreshed on the quota tick:
 
 | Name | Type |
@@ -102,7 +124,7 @@ Quota HTTP fetch (used/remaining/reset + supported): Claude, Codex, Antigravity,
 
 `usage.handle` is not limited to the accounts currently logged in on one homelab. A Claude-only install gets `provider="claude"` on the same metric names.
 
-Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
+Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`, `format`, `stream`, `outcome`, `code`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
 
 Per-account fetch failures increment the error counter and leave the last good gauges. They do not take down CPA.
 
@@ -154,6 +176,7 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 | `quota-refresh-interval` | `5m` (1m–24h) |
 | `include-disabled` | `false` |
 | `max-concurrency` | `4` (max 16) |
+| `track-in-flight` | `false`. Enables `cliproxy_client_requests_in_flight` and `cliproxy_client_request_attempts` |
 
 `public-metrics` and `scrape-token` were removed in 0.2.0 along with the resource route. `request-timeout` was removed in 0.2.2: the plugin reaches the network through the host's `host.http.do` callback, which takes no timeout, so the field could never do what it claimed — the effective timeout is the one CPA's own HTTP client applies. All three keys are ignored if left in `config.yaml` rather than rejected.
 

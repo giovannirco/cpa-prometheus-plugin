@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Client-side and streaming metrics. Nothing existing changed name, labels, or buckets.
+
+- **`request.complete` hook.** `cliproxy_client_requests_total` and `cliproxy_client_request_duration_seconds` count what the client actually got: one terminal event per request after CPA's credential retries, including client disconnects (`canceled`) and interceptor rejections that `usage.handle` never sees. The duration buckets reach 600s; LLM requests regularly run past the 10s top of `DefBuckets`.
+- **Streaming timing from `usage.handle`.** `cliproxy_ttft_seconds` and `cliproxy_output_tokens_per_second` for successful streaming requests.
+- **Opt-in `track-in-flight`.** Registers a request interceptor for `cliproxy_client_requests_in_flight` and `cliproxy_client_request_attempts`. Off by default because interceptors run synchronously on the request path with the full body; the plugin returns the request unchanged and CPA fails open if the call errors.
+- **Bounded client model labels.** The client-requested model is capped at 256 distinct values (then `other`), since clients choose that string. `GET /v1/models` completions carry no model and are skipped.
+- Grafana: new "Client requests & streaming" row.
+
 ## 0.2.3 — 2026-09-23
 
 Cursor quota is collected from `api2.cursor.sh` `GetCurrentPeriodUsage` and `GetSandUsageStatus`. Windows are `cursor_models`, `other_models`, `included`, and `grok_bot`. A weekly-call failure keeps the plan windows.

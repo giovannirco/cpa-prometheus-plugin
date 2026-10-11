@@ -321,6 +321,11 @@ def dashboard() -> dict:
     req_y = 72
     lat_y = 80
     models_y = 88
+    client_y = 96
+    client_req_y = 97
+    client_lat_y = 105
+    stream_y = 113
+    flight_y = 121
 
     panels: list[dict] = [
         row(1, "Overview", 0),
@@ -767,6 +772,124 @@ def dashboard() -> dict:
             w=12,
             h=8,
             desc="model_seen is from usage.handle. model_available is emitted only when host.auth.get_runtime includes model_states (often absent on CPA v7).",
+        ),
+        row(50, "Client requests & streaming", client_y),
+        timeseries(
+            51,
+            "Client requests by outcome",
+            [
+                tgt(
+                    f"sum by (outcome, code) (rate(cliproxy_client_requests_total{{{PLUGIN}}}[$__rate_interval]))",
+                    legend="{{outcome}} {{code}}",
+                )
+            ],
+            0,
+            client_req_y,
+            desc="Terminal outcome of every client request from request.complete, including client disconnects (canceled) and interceptor rejections. Requests CPA rejects before execution (e.g. unknown model) are not reported by the host.",
+            unit="reqps",
+            stack="normal",
+        ),
+        timeseries(
+            52,
+            "Client success ratio (excl. canceled)",
+            [
+                tgt(
+                    f'sum(rate(cliproxy_client_requests_total{{{PLUGIN},outcome="succeeded"}}[$__rate_interval])) / sum(rate(cliproxy_client_requests_total{{{PLUGIN},outcome!="canceled"}}[$__rate_interval]))',
+                    legend="success ratio",
+                )
+            ],
+            12,
+            client_req_y,
+            desc="Share of client requests that succeeded after CPA retries. Client disconnects are excluded.",
+            unit="percentunit",
+            min_v=0,
+            max_v=1,
+            steps=(("red", None), ("orange", 0.95), ("green", 0.99)),
+        ),
+        timeseries(
+            53,
+            "End-to-end latency p50 / p95",
+            [
+                tgt(
+                    f'histogram_quantile(0.50, sum by (le, stream) (rate(cliproxy_client_request_duration_seconds_bucket{{{PLUGIN},outcome="succeeded"}}[$__rate_interval])))',
+                    "A",
+                    "p50 stream={{stream}}",
+                ),
+                tgt(
+                    f'histogram_quantile(0.95, sum by (le, stream) (rate(cliproxy_client_request_duration_seconds_bucket{{{PLUGIN},outcome="succeeded"}}[$__rate_interval])))',
+                    "B",
+                    "p95 stream={{stream}}",
+                ),
+            ],
+            0,
+            client_lat_y,
+            desc="Client-observed latency including credential retries. Buckets reach 600s for long generations.",
+            unit="s",
+        ),
+        timeseries(
+            54,
+            "Credential attempts per request",
+            [
+                tgt(
+                    f"sum(rate(cliproxy_client_request_attempts_sum{{{PLUGIN}}}[$__rate_interval])) / sum(rate(cliproxy_client_request_attempts_count{{{PLUGIN}}}[$__rate_interval]))",
+                    legend="avg attempts",
+                )
+            ],
+            12,
+            client_lat_y,
+            desc="Above 1 means CPA retried or switched credentials. Requires track-in-flight: true.",
+            unit="short",
+            min_v=0,
+        ),
+        timeseries(
+            55,
+            "Time to first token p50 / p95",
+            [
+                tgt(
+                    f"histogram_quantile(0.50, sum by (le, provider, model) (rate(cliproxy_ttft_seconds_bucket{{{SEL_P}}}[$__rate_interval])))",
+                    "A",
+                    "p50 {{provider}} {{model}}",
+                ),
+                tgt(
+                    f"histogram_quantile(0.95, sum by (le, provider, model) (rate(cliproxy_ttft_seconds_bucket{{{SEL_P}}}[$__rate_interval])))",
+                    "B",
+                    "p95 {{provider}} {{model}}",
+                ),
+            ],
+            0,
+            stream_y,
+            desc="Successful streaming upstream requests, from usage.handle TTFT.",
+            unit="s",
+        ),
+        timeseries(
+            56,
+            "Output speed p50",
+            [
+                tgt(
+                    f"histogram_quantile(0.50, sum by (le, provider, model) (rate(cliproxy_output_tokens_per_second_bucket{{{SEL_P}}}[$__rate_interval])))",
+                    legend="{{provider}} {{model}}",
+                )
+            ],
+            12,
+            stream_y,
+            desc="Output tokens per second after the first token, for successful streaming upstream requests.",
+            unit="short",
+        ),
+        timeseries(
+            57,
+            "Requests in flight",
+            [
+                tgt(
+                    f"sum by (format) (cliproxy_client_requests_in_flight{{{PLUGIN}}})",
+                    legend="{{format}}",
+                )
+            ],
+            0,
+            flight_y,
+            w=24,
+            desc="Client requests admitted but not completed. Requires track-in-flight: true.",
+            unit="short",
+            stack="normal",
         ),
     ]
 

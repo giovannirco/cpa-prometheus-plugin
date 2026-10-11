@@ -20,6 +20,10 @@ type Config struct {
 	QuotaRefreshInterval time.Duration
 	IncludeDisabled      bool
 	MaxConcurrency       int
+	// TrackInFlight registers the request interceptor so in-flight requests and
+	// credential attempts can be counted. Off by default: interceptors run on
+	// the request path and receive the full request body.
+	TrackInFlight bool
 }
 
 func Default() Config {
@@ -63,6 +67,7 @@ func Parse(request []byte) (Config, error) {
 		QuotaRefreshInterval string `yaml:"quota-refresh-interval"`
 		IncludeDisabled      *bool  `yaml:"include-disabled"`
 		MaxConcurrency       int    `yaml:"max-concurrency"`
+		TrackInFlight        *bool  `yaml:"track-in-flight"`
 	}
 	if err := yaml.Unmarshal([]byte(text), &raw); err != nil {
 		return cfg, fmt.Errorf("decode plugin config yaml: %w", err)
@@ -76,6 +81,9 @@ func Parse(request []byte) (Config, error) {
 	}
 	if raw.IncludeDisabled != nil {
 		cfg.IncludeDisabled = *raw.IncludeDisabled
+	}
+	if raw.TrackInFlight != nil {
+		cfg.TrackInFlight = *raw.TrackInFlight
 	}
 	if raw.MaxConcurrency > MaxConcurrency {
 		return cfg, fmt.Errorf("max-concurrency must be <= %d", MaxConcurrency)

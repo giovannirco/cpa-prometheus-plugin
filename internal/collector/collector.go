@@ -43,6 +43,8 @@ type UsageRecord struct {
 	Failed            bool
 	FailureStatusCode int
 	Detail            TokenDetail
+	Stream            bool
+	TTFT              time.Duration
 }
 
 type Collector struct {
@@ -79,6 +81,7 @@ type Collector struct {
 	lastRequest            *prometheus.GaugeVec
 	modelSeen              *prometheus.GaugeVec
 	modelAvailable         *prometheus.GaugeVec
+	lifecycle              *lifecycleMetrics
 
 	mu         sync.Mutex
 	seenModels map[string]map[string]struct{}
@@ -256,6 +259,7 @@ func New(version string) *Collector {
 		c.authSuccess, c.authFailed, c.authDisabled, c.authUnavailable, c.authNextRetry,
 		c.authRuntimeOnly, c.authLastRefresh, c.authUpdated, c.authProjectInfo, c.lastRequest,
 	)
+	c.lifecycle = newLifecycleMetrics(reg, constLabels)
 	c.info.WithLabelValues(version).Set(1)
 	c.up.Set(1)
 	c.pollInterval.Set(DefaultQuotaRefreshInterval.Seconds())
@@ -286,6 +290,7 @@ func (c *Collector) ObserveUsage(rec UsageRecord) {
 		}
 		c.failures.WithLabelValues(provider, model, authIndex, email, code).Inc()
 	}
+	c.lifecycle.observeStreamTiming(provider, model, rec)
 	add := func(kind string, n int64) {
 		if n == 0 {
 			return
