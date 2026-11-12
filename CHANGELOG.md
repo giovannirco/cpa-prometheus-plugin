@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 — 2026-11-12
+
+- Package the native platform library when running `make package` without target overrides.
+- Build release libraries with Go 1.26.11 security fixes.
+- Refresh compatible Prometheus, protobuf and platform dependencies; minimum Go version is now 1.26, matching the existing CI line.
+- Preserve authenticated metrics routes, quota callback decoding and metric contracts.
+
 ## 0.2.3 — 2026-09-23
 
 Cursor quota is collected from `api2.cursor.sh` `GetCurrentPeriodUsage` and `GetSandUsageStatus`. Windows are `cursor_models`, `other_models`, `included`, and `grok_bot`. A weekly-call failure keeps the plan windows.

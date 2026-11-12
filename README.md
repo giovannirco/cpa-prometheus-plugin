@@ -162,7 +162,7 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 ```bash
 go test ./...
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.2.2 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.2.4 package   # zip + checksums; needs the .so from `make build`
 ```
 
 ## License
