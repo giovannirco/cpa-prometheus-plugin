@@ -28,4 +28,4 @@ build:
 	rm -f $(DIST)/$(PLUGIN_ID).h
 
 package: build
-	bash scripts/package-release.sh $(VERSION) $(DIST)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) bash scripts/package-release.sh $(VERSION) $(DIST)
