@@ -4,7 +4,7 @@ CLIProxyAPI plugin that exports Prometheus metrics for proxy traffic and provide
 
 CPA has no `/metrics` of its own. This plugin is an in-process `.so`. It hooks `usage.handle` for request stats, polls quota over `host.auth` + `host.http.do`, and serves Prometheus text on the **authenticated management route only**. Host `GET /metrics` stays 404.
 
-Needs a plugin-capable CPA v7.2.x image. The `_no-plugin` builds cannot load it.
+Needs a plugin-capable CPA image. Plugin v0.2.4 was verified against CPA 8.0.56; the `_no-plugin` builds cannot load it. Recheck host compatibility when upgrading CPA rather than assuming every host release supports the same callbacks.
 
 ## Scrape
 
@@ -161,9 +161,14 @@ Build `c-shared` on GitHub Actions (`release.yml`). Qemu linux/amd64 on a Mac ha
 
 ```bash
 go test ./...
-CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -buildmode=c-shared -o dist/cpa-prometheus.so ./cmd/plugin
-make VERSION=0.2.4 package   # zip + checksums; needs the .so from `make build`
+make VERSION=0.2.4 package
 ```
+
+`package` first builds the native library with the version embedded, then creates
+the zip and checksums. Use Go 1.26.11 to match CI and a C compiler for cgo. The
+default target is your host; cross-compiling requires both `GOOS`/`GOARCH` and the
+matching `CC` (see `.github/workflows/ci.yml`). Do not label a native macOS build
+as Linux by changing only the archive name.
 
 ## License
 
