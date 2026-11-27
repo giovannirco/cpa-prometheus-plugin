@@ -23,6 +23,7 @@ jobs:
         run: |
           go test ./internal/labels -fuzz=FuzzEmail -fuzztime=10s
           go test ./internal/labels -fuzz=FuzzSanitize -fuzztime=10s
+          go test ./internal/labels -fuzz=FuzzModel -fuzztime=10s
           go test ./internal/config -fuzz=FuzzParse -fuzztime=10s
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
