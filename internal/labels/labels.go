@@ -18,7 +18,10 @@ func secretLike(value string) bool {
 	if s == "" {
 		return false
 	}
-	if strings.ContainsAny(s, `/\`) || strings.Contains(s, "://") {
+	if strings.Contains(s, `\`) || strings.Contains(s, "://") {
+		return true
+	}
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "~/") || strings.Count(s, "/") > 1 {
 		return true
 	}
 	for _, prefix := range []string{
@@ -31,7 +34,19 @@ func secretLike(value string) bool {
 	return strings.Contains(s, "-----begin")
 }
 
-func Sanitize(value string, max int) string {
+func Sanitize(value string, max int) string { return sanitize(value, max, "") }
+
+func Provider(value string) string    { return Sanitize(value, MaxProvider) }
+func Model(value string) string       { return sanitize(value, MaxModel, "/") }
+func AuthIndex(value string) string   { return Sanitize(value, MaxAuthIndex) }
+func Window(value string) string      { return Sanitize(value, MaxWindow) }
+func Status(value string) string      { return Sanitize(value, MaxStatus) }
+func AccountType(value string) string { return Sanitize(value, MaxAccountType) }
+func ProjectID(value string) string   { return Sanitize(value, MaxProjectID) }
+
+func Email(value string) string { return sanitize(value, MaxEmail, "@+") }
+
+func sanitize(value string, max int, extra string) string {
 	if secretLike(value) {
 		return "unknown"
 	}
@@ -45,6 +60,8 @@ func Sanitize(value string, max int) string {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-', r == '.':
 			b.WriteRune(r)
+		case strings.ContainsRune(extra, r):
+			b.WriteRune(r)
 		default:
 			b.WriteByte('_')
 		}
@@ -52,42 +69,6 @@ func Sanitize(value string, max int) string {
 	out := b.String()
 	if max > 0 && len(out) > max {
 		out = out[:max]
-	}
-	if out == "" {
-		return "unknown"
-	}
-	return out
-}
-
-func Provider(value string) string    { return Sanitize(value, MaxProvider) }
-func Model(value string) string       { return Sanitize(value, MaxModel) }
-func AuthIndex(value string) string   { return Sanitize(value, MaxAuthIndex) }
-func Window(value string) string      { return Sanitize(value, MaxWindow) }
-func Status(value string) string      { return Sanitize(value, MaxStatus) }
-func AccountType(value string) string { return Sanitize(value, MaxAccountType) }
-func ProjectID(value string) string   { return Sanitize(value, MaxProjectID) }
-
-func Email(value string) string {
-	if secretLike(value) {
-		return "unknown"
-	}
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
-		return "unknown"
-	}
-	var b strings.Builder
-	b.Grow(len(value))
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '@', r == '.', r == '_', r == '-', r == '+':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	out := b.String()
-	if MaxEmail > 0 && len(out) > MaxEmail {
-		out = out[:MaxEmail]
 	}
 	if out == "" {
 		return "unknown"

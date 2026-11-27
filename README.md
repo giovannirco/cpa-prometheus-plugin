@@ -102,7 +102,7 @@ Quota HTTP fetch (used/remaining/reset + supported): Claude, Codex, Antigravity,
 
 `usage.handle` is not limited to the accounts currently logged in on one homelab. A Claude-only install gets `provider="claude"` on the same metric names.
 
-Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). Tokens, cookies, file paths, and raw API keys are dropped.
+Labels used: `provider`, `model`, `auth_index`, `window`, `type`, `status`, `email`, `account_type`, `project_id`. `email` comes from `host.auth.list` (or `unknown` if CPA omitted it). `model` keeps a provider namespace such as `opencode-go/deepseek-v4.1-flash` when CPA supplies one. Tokens, cookies, file paths, and raw API keys are dropped.
 
 Per-account fetch failures increment the error counter and leave the last good gauges. They do not take down CPA.
 

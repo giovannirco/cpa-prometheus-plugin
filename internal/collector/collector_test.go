@@ -336,6 +336,35 @@ func TestObserveUsageKeepsProviderAndModel(t *testing.T) {
 	}
 }
 
+func TestObserveUsageKeepsProviderNamespacedModel(t *testing.T) {
+	c := New("0.2.5")
+	c.ObserveUsage(UsageRecord{
+		Provider:  "opencode-go",
+		Model:     "opencode-go/deepseek-v4.1-flash",
+		AuthIndex: "c6c9bafa30856476",
+		Latency:   time.Millisecond,
+		Detail:    TokenDetail{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+	})
+	c.ObserveUsage(UsageRecord{
+		Provider: "xai",
+		Model:    "/root/.cli-proxy-api/secret.json",
+		Latency:  time.Millisecond,
+	})
+	text, err := c.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, `model="opencode-go/deepseek-v4.1-flash"`) {
+		t.Fatalf("provider-namespaced model label missing:\n%s", text)
+	}
+	if strings.Contains(text, `model="opencode_go_deepseek-v4.1-flash"`) {
+		t.Fatalf("model namespace was rewritten:\n%s", text)
+	}
+	if !strings.Contains(text, `model="unknown"`) {
+		t.Fatalf("path-shaped model was not dropped:\n%s", text)
+	}
+}
+
 func TestExpositionKeepsShippedFamiliesAndEmail(t *testing.T) {
 	c := New("0.1.6")
 	c.ApplyCredentials([]quota.Credential{{

@@ -87,6 +87,82 @@ func FuzzSanitize(f *testing.F) {
 	})
 }
 
+func TestModelKeepsProviderNamespace(t *testing.T) {
+	for _, in := range []string{
+		"opencode-go/deepseek-v4.1-flash",
+		"agy/gemini-4-neon-high",
+		"zai/glm-5.3",
+		"deepseek-v4.1-flash",
+	} {
+		if got := Model(in); got != in {
+			t.Fatalf("Model(%q) = %q, want unchanged", in, got)
+		}
+	}
+	if got := Model("OpenCode-Go/DeepSeek-V4.1-Flash"); got != "opencode-go/deepseek-v4.1-flash" {
+		t.Fatalf("Model case folding = %q", got)
+	}
+}
+
+func TestModelRejectsPathsURLsAndTokens(t *testing.T) {
+	for _, in := range []string{
+		"",
+		"/root/.cli-proxy-api/secret.json",
+		"~/secrets/gio.json",
+		`C:\Users\gio\secret.json`,
+		"https://example.com/v1/models",
+		"state/oauth/secret.json",
+		"sk-abcdefghijklmnopqrstuvwxyz",
+		"Bearer tok-secret",
+	} {
+		if got := Model(in); got != "unknown" {
+			t.Fatalf("Model(%q) = %q, want unknown", in, got)
+		}
+	}
+}
+
+func TestSanitizeAllowsOneInteriorSeparator(t *testing.T) {
+	if got := Sanitize("state/oauth.json", 64); got != "state_oauth.json" {
+		t.Fatalf("single separator = %q", got)
+	}
+	for _, in := range []string{"/root/secret.json", "~/secret.json", "state/oauth/secret.json", `C:\secret.json`, "https://example.com/x"} {
+		if got := Sanitize(in, 64); got != "unknown" {
+			t.Fatalf("Sanitize(%q) = %q, want unknown", in, got)
+		}
+	}
+}
+
+func TestModelTruncates(t *testing.T) {
+	if got := sanitize("aaaa/bbbb", 4, "/"); got != "aaaa" {
+		t.Fatalf("got %q", got)
+	}
+	long := strings.Repeat("a", MaxModel+10)
+	if got := Model(long); len(got) != MaxModel {
+		t.Fatalf("len %d", len(got))
+	}
+}
+
+func FuzzModel(f *testing.F) {
+	f.Add("opencode-go/deepseek-v4.1-flash")
+	f.Add("agy/gemini-4-neon-high")
+	f.Add("/etc/passwd")
+	f.Add("sk-secret-value")
+	f.Fuzz(func(t *testing.T, s string) {
+		got := Model(s)
+		if len(got) > MaxModel {
+			t.Fatalf("len %d", len(got))
+		}
+		if strings.Contains(got, `\`) || strings.Contains(got, "://") || strings.HasPrefix(got, "/") {
+			t.Fatalf("path or URL leaked %q -> %q", s, got)
+		}
+		if strings.Count(got, "/") > 1 {
+			t.Fatalf("nested path leaked %q -> %q", s, got)
+		}
+		if strings.HasPrefix(got, "sk-") || strings.HasPrefix(got, "bearer ") {
+			t.Fatalf("token leaked %q -> %q", s, got)
+		}
+	})
+}
+
 func TestSanitizeTruncates(t *testing.T) {
 	got := Sanitize("abcdefghij", 4)
 	if got != "abcd" {

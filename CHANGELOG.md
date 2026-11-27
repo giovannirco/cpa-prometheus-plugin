@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Model labels keep the provider namespace.** A model ID such as `opencode-go/deepseek-v4.1-flash` or `agy/gemini-4-neon-high` was censored to `model="unknown"` because the shared label sanitizer treated any `/` as a file path. Path detection now rejects only real path shapes: a leading `/` or `~/`, a backslash, `://`, or more than one separator. A single interior `/` therefore survives in the `model` label, while the other labels keep turning it into `_` through their character whitelist. Absolute paths and token-shaped values are still dropped. Metric names are unchanged.
+
 ## 0.2.4 — 2026-11-12
 
 - Package the native platform library when running `make package` without target overrides.
